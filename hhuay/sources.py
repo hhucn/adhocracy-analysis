@@ -1,6 +1,7 @@
 import collections
 import datetime
 import io
+import json
 import lzma
 import re
 import time
@@ -10,6 +11,25 @@ Request = collections.namedtuple(
     'Request',
     ('time', 'ip', 'method', 'path', 'cookies', 'referer', 'user_agent',
      'username'))
+
+
+User = collections.namedtuple(
+    'User',
+    ('name', 'email', 'badges')
+)
+
+
+def read_userdb(fn):
+    with open(fn, 'r', encoding='utf-8') as jsonf:
+        data = json.load(jsonf)
+
+    assert data['metadata']['adhocracy_options']['include_user']
+    assert data['metadata']['adhocracy_options']['include_badge']
+    return {
+        udata['user_name']: User(
+            udata['user_name'], udata['email'], udata['badges'])
+        for udata in data['user'].values()
+    }
 
 
 def read_requestlog(stream):

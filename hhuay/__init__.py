@@ -3,6 +3,7 @@ import collections
 import json
 import re
 import sys
+import time
 
 from . import sources
 
@@ -29,20 +30,31 @@ def action_listrequests(args, format='repr'):
             'requests': l,
         }
         json.dump(info, sys.stdout)
-        print()
+        print()  # Output a final newline
+    elif format == 'benchmark':
+        start_time = time.clock()
+        count = sum(1 for _ in read_requestlog_all(args))
+        end_time = time.clock()
+        print(
+            'Read %d requests in %d seconds (%d requests/s)' %
+            (count, (end_time - start_time), count / (end_time - start_time)))
     else:
         raise ValueError('Invalid list format %r' % format)
 
 
-def action_actionstats(args):
+def action_actionstats(args, userdb_filename=None):
     """ Display how many users did some actions, like logging in /
         posting something"""
 
-    total_count = 1321
+    if not userdb_filename:
+        raise ValueError('Extended analysis requires a user database')
+
+    all_users = sources.read_userdb(userdb_filename)
+    total_count = len(all_users)
 
     def print_cmp(txt, part, whole=total_count):
         print('%s: %d / %d (%d %%)' %
-              (txt, part, whole, int(round(part / whole * 100, 0))))
+              (txt, part, whole, round(part / whole * 100)))
 
     welcome_rex = re.compile(r'/welcome/(?P<user>[^/]+)/')
     visited_rex = re.compile(r'^/i/')
@@ -101,13 +113,17 @@ def main():
     sp = subparsers.add_parser('listrequests',
                                help=action_listrequests.__doc__.strip(),
                                parents=[common_options])
-    sp.add_argument('--format', dest='action_listrequests_format',
-                    help='Output format ("repr" or "json")')
+    sp.add_argument('--format',
+                    dest='action_listrequests_format',
+                    metavar='FORMAT',
+                    help='Output format ("repr", "json", or "benchmark")')
     subparsers.add_parser('uastats', help=action_uastats.__doc__.strip(),
                           parents=[common_options])
-    subparsers.add_parser('actionstats',
-                          help=action_actionstats.__doc__.strip(),
-                          parents=[common_options])
+    sp = subparsers.add_parser('actionstats',
+                               help=action_actionstats.__doc__.strip(),
+                               parents=[common_options])
+    sp.add_argument('--userdb', dest='action_actionstats_userdb_filename',
+                    help='Filename of user database', metavar='FILE')
 
     args = parser.parse_args()
     if not args.action:
