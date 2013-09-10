@@ -64,8 +64,9 @@ def _detect_apache_format(firstbytes):
             \[(?P<datestr>[^\]]+)\]\s+
             "(?:(?P<internal_request>-)|
                 (?P<requestmethod>[A-Z]+)\s(?P<requestline>\S+)
-                    (\sHTTP/[0-9.]+)?)
-            "\s
+                    (\sHTTP/[0-9.]+)?|
+                (?P<random_crap>[\\x0-9]+)
+            )"\s
             (?P<ip_>[0-9a-f:.]+(%[0-9a-f]{,3})?)\s+
             (?P<answer_code>[0-9]+)\s+
             (?P<http_proto>[^"]+)\s+
@@ -94,7 +95,7 @@ def _read_apache_log(stream, format):
             raise ValueError('Line %r does not match pattern %s' %
                              (line, format))
 
-        if m.group('internal_request'):
+        if m.group('internal_request') or m.group('random_crap'):
             continue
 
         time_obj = datetime.datetime.strptime(m.group('datestr'),
