@@ -94,6 +94,9 @@ def _read_apache_log(stream, format):
             raise ValueError('Line %r does not match pattern %s' %
                              (line, format))
 
+        if m.group('internal_request'):
+            continue
+
         time_obj = datetime.datetime.strptime(m.group('datestr'),
                                               '%d/%b/%Y:%H:%M:%S %z')
         rtime = time.mktime(time_obj.timetuple())
