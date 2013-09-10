@@ -1,6 +1,20 @@
 Read user databases!
-user stats by user attributes (faculty / status)
+	actions by time
+	user stats by user attributes (faculty / status)
+	by badges
+new action: posting a proposal
+find out who changed their preference
 
+ip
+user agents
+performance data
+average reading time per user
+new action: vote behavior
+usage by time
+number of actions per user
+filter out our devs
 Email bounce / Out of office stats?
 Show status (if possible)
-How can we speed up reading?
+sessions
+
+How can we speed up reading the stats file?
