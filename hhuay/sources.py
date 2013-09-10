@@ -62,11 +62,14 @@ def _detect_apache_format(firstbytes):
         r'''(?x)^
             (?P<ip>[0-9a-f:.]+(%[0-9a-f]{,3})?)\s+
             \[(?P<datestr>[^\]]+)\]\s+
-            "(?P<requestmethod>[A-Z]+)\s+(?P<requestline>\S+)\s+HTTP/[0-9.]+"\s
+            "(?:(?P<internal_request>-)|
+                (?P<requestmethod>[A-Z]+)\s(?P<requestline>\S+)
+                    (\sHTTP/[0-9.]+)?)
+            "\s
             (?P<ip_>[0-9a-f:.]+(%[0-9a-f]{,3})?)\s+
             (?P<answer_code>[0-9]+)\s+
             (?P<http_proto>[^"]+)\s+
-            (?P<user_agent>"[^\"]*")\s+
+            "(?P<user_agent>[^\"]*)"\s+
             "(?P<cookie>[^"]*)"\s+
             "(?P<cookie_>[^"]*)"
             $
