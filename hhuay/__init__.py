@@ -38,6 +38,8 @@ def action_listrequests(args, format='repr'):
         print(
             'Read %d requests in %d seconds (%d requests/s)' %
             (count, (end_time - start_time), count / (end_time - start_time)))
+    elif format is None:
+        raise ValueError('No format specified')
     else:
         raise ValueError('Invalid list format %r' % format)
 
