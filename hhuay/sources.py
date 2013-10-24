@@ -64,11 +64,7 @@ def _detect_apache_format(firstbytes):
         r'''(?x)^
             (?P<ip>[0-9a-f:.]+(%[0-9a-f]{,3})?)\s+
             \[(?P<datestr>[^\]]+)\]\s+
-            "(?:(?P<internal_request>-)|
-                (?P<requestmethod>[A-Z]+)\s(?P<requestline>\S+)
-                    (\sHTTP/[0-9.]+)?|
-                (?P<random_crap>[\\x0-9]+)
-            )"\s
+            "(?P<reqline>[^"]+)"\s
             (?P<ip_>[0-9a-f:.]+(%[0-9a-f]{,3})?)\s+
             (?P<answer_code>[0-9]+)\s+
             (?P<http_proto>[^"]+)\s+
@@ -110,14 +106,21 @@ def _read_apache_log(stream, format):
         ([0-9]{2})[ ] # second
         ([+-][0-9]{2}[0-9]{2}) # timezone
         ''')
+    reqline_rex = re.compile(
+        r'(?P<requestmethod>[A-Z]+)\s(?P<path>[^"]+)\sHTTP/[0-9.]+')
     for line in ts:
         m = rex.match(line)
         if not m:
-            raise ValueError('Line %r does not match pattern %s' %
+            raise ValueError('Line %r does not match pattern %r' %
                              (line, format))
 
-        if m.group('internal_request') or m.group('random_crap'):
-            continue
+        reqline = m.group('reqline')
+        if reqline == '-':
+            continue  # Internal request
+
+        line_m = reqline_rex.match(reqline)
+        if not line_m:
+            continue  # Random crap
 
         # Parse time
         time_m = time_rex.match(m.group('datestr'))
@@ -140,8 +143,8 @@ def _read_apache_log(stream, format):
         else:
             username = None
 
-        req = Request(rtime, m.group('ip'), m.group('requestmethod'),
-                      m.group('requestline'),
+        req = Request(rtime, m.group('ip'), line_m.group('requestmethod'),
+                      line_m.group('path'),
                       'TODO: COOKIES', 'TODO: referer', m.group('user_agent'),
                       username)
         yield req
