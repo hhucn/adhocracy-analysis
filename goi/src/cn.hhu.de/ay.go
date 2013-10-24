@@ -6,9 +6,6 @@ import "fmt"
 import "log"
 import "os"
 
-import "code.google.com/p/lzma"
-
-
 
 type Request struct {
 	ip string
@@ -21,8 +18,6 @@ func read_file(fn string) chan *Request {
 		log.Fatal(err)
 	}
 	// TODO check file format
-	r := lzma.NewReader(file)
-	r.Close()
 
 	output := make(chan *Request)
 	go func() {
@@ -34,6 +29,10 @@ func read_file(fn string) chan *Request {
 			r.path = line
 			output <- r
 		}
+		if (scanner.Err() != nil) {
+			log.Fatal(scanner.Err())
+		}
+		file.Close()
 		close(output)
 	}()
 	
