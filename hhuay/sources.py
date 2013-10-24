@@ -1,3 +1,4 @@
+import calendar
 import collections
 import datetime
 import io
@@ -6,6 +7,7 @@ import lzma
 import re
 import time
 
+from . import util
 
 Request = collections.namedtuple(
     'Request',
@@ -85,10 +87,29 @@ def _detect_apache_format(firstbytes):
 
 
 def _read_apache_log(stream, format):
+    month_names = dict((v, k) for k, v in enumerate(calendar.month_abbr))
+
+    def calc_timezone_offset(tzstr):
+        m = re.match(
+            r'^(?P<sign>[+-])(?P<hours>[0-9]{2})(?P<minutes>[0-9]{2})$', tzstr)
+        sgn = -1 if m.group('sign') == '-' else 1
+        res = sgn * (int(m.group('hours')) * 60 + int(m.group('minutes')))
+        return res
+    tz_cache = util.keydefaultdict(calc_timezone_offset)
+
     ts = io.TextIOWrapper(stream, 'utf-8', errors='strict')
     rex = re.compile(format)
     user_rex = re.compile(
         r'^[0-9a-f]{40}(?P<username>[a-z_]+)!userid_type:unicode$')
+    time_rex = re.compile(r'''(?x)^
+        ([0-9]{2})/   # day
+        ([A-Za-z0-9]{1,})/ # month
+        ([0-9]{4}):   # year
+        ([0-9]{2}):   # hour
+        ([0-9]{2}):   # minute
+        ([0-9]{2})[ ] # second
+        ([+-][0-9]{2}[0-9]{2}) # timezone
+        ''')
     for line in ts:
         m = rex.match(line)
         if not m:
@@ -98,9 +119,21 @@ def _read_apache_log(stream, format):
         if m.group('internal_request') or m.group('random_crap'):
             continue
 
-        time_obj = datetime.datetime.strptime(m.group('datestr'),
-                                              '%d/%b/%Y:%H:%M:%S %z')
-        rtime = time.mktime(time_obj.timetuple())
+        # Parse time
+        time_m = time_rex.match(m.group('datestr'))
+        assert time_m, m.group('datestr')
+        rtime = calendar.timegm((
+            int(time_m.group(3)),
+            month_names[time_m.group(2)],
+            int(time_m.group(1)),
+            int(time_m.group(4)),
+            int(time_m.group(5)),
+            int(time_m.group(6))
+        ))
+        tzstr = time_m.group(7)
+        rtime += tz_cache[tzstr]
+        rtime = 42
+
         user_m = user_rex.match(m.group('cookie'))
         if user_m:
             username = user_m.group('username')
