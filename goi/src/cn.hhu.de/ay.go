@@ -3,8 +3,10 @@ package main
 import "bufio"
 import "flag"
 import "fmt"
+import "io"
 import "log"
 import "os"
+import "os/exec"
 
 
 type Request struct {
@@ -12,7 +14,23 @@ type Request struct {
 	path string
 }
 
-func read_file(fn string) chan *Request {
+func uncompressXz(r io.Reader) io.ReadCloser {
+    rpipe, wpipe := io.Pipe()
+
+    cmd := exec.Command("xz", "--decompress", "--stdout")
+    cmd.Stdin = r
+    cmd.Stdout = wpipe
+
+    go func() {
+        err := cmd.Run()
+        wpipe.CloseWithError(err)
+    }()
+
+    return rpipe
+}
+
+
+func readFile(fn string) chan *Request {
 	file, err := os.Open(fn)
 	if (err != nil) {
 		log.Fatal(err)
@@ -39,12 +57,12 @@ func read_file(fn string) chan *Request {
 	return output
 }
 
-func read_files(filenames []string) chan *Request {
+func readFiles(filenames []string) chan *Request {
 	output := make(chan *Request)
 
 	go func() {
 		for _, filename := range filenames {
-			for r := range read_file(filename) {
+			for r := range readFile(filename) {
 				output <- r
 			}
 		}
@@ -66,7 +84,7 @@ func main() {
 
 	switch action {
 	case "listrequests":
-		for r := range read_files(positional_args[1:]) {
+		for r := range readFiles(positional_args[1:]) {
 			fmt.Printf("%s\n", r.path)
 		}
 	default:
