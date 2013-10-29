@@ -64,7 +64,8 @@ def _detect_apache_format(firstbytes):
         r'''(?x)^
             (?P<ip>[0-9a-f:.]+(%[0-9a-f]{,3})?)\s+
             \[(?P<datestr>[^\]]+)\]\s+
-            "(?P<reqline>[^"]+)"\s
+            "(?P<reqline>[^"\\]+
+                (?P<reqline_escaped>(?:\\")(?:\\"|[^"\\])+)?)"\s
             (?P<ip_>[0-9a-f:.]+(%[0-9a-f]{,3})?)\s+
             (?P<answer_code>[0-9]+)\s+
             (?P<http_proto>[^"]+)\s+
@@ -117,6 +118,9 @@ def _read_apache_log(stream, format):
         reqline = m.group('reqline')
         if reqline == '-':
             continue  # Internal request
+
+        if m.group('reqline_escaped'):
+            reqline = reqline.replace('\\"', '"')
 
         line_m = reqline_rex.match(reqline)
         if not line_m:
