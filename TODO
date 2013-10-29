@@ -1,3 +1,8 @@
+extract sessions
+How can we speed up reading the stats file?
+
+dump out data for Tobias
+
 Read user databases!
 	actions by time
 	user stats by user attributes (faculty / status)
@@ -15,6 +20,3 @@ number of actions per user
 filter out our devs
 Email bounce / Out of office stats?
 Show status (if possible)
-sessions
-
-How can we speed up reading the stats file?
