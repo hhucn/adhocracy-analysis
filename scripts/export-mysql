@@ -1,3 +1,0 @@
-#!/bin/sh
-
-exec mysqldump -u normsetzung "$@" normsetzung --compatible ansi,no_key_options,no_table_options,no_field_options --skip-lock-tables
