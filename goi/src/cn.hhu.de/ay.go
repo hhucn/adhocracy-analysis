@@ -83,6 +83,7 @@ func userIds(db *sql.DB) map[string]int {
 
 func tagRequestUsers(db *sql.DB) {
 	user_ids := userIds(db)
+	fmt.Println(user_ids)
 
 	/*
 	done, tableName := makeTable("request_users", "INT request_id, INT user_id")
