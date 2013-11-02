@@ -1,8 +1,12 @@
 package main
 
-import "flag"
-import "fmt"
-import "os"
+import (
+	"flag"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+)
 
 
 import (
@@ -11,14 +15,12 @@ import (
 )
 
 
-import "strings"
-
 type Request struct {
 	id int
-	access_time int
+	access_time int64
 	ip_address string
-	url string
-	cookes string
+	request_url string
+	cookies string
 	user_agent string
 	referer string
 }
@@ -54,13 +56,54 @@ func makeTable(name string, definitions string) (bool, string) {
 	return false, tableName
 }
 
-func allRequests() <- chan Request {
-	res := make(chan Request)
-	return res
+func allRequests(db *sql.DB) <-chan Request {
+	c := make(chan Request, 1000)
+	go func() {
+		rows, err := db.Query("SELECT id, access_time, ip_address, request_url, cookies, user_agent, referer FROM requestlog")
+		if err != nil {
+			panic(err.Error())
+		}
+		for rows.Next() {
+			var req Request
+			var datestr string
+			var user_agent sql.NullString
+			var referer sql.NullString
+			var cookies sql.NullString
+
+			err = rows.Scan(&req.id, &datestr, &req.ip_address, &req.request_url, &cookies, &user_agent, &referer)
+			if err != nil {
+				panic(err.Error())
+			}
+			if user_agent.Valid {
+				req.user_agent = user_agent.String
+			} else {
+				req.user_agent = "(unspecified)"
+			}
+			if referer.Valid {
+				req.referer = referer.String
+			} else {
+				req.referer = "(none)"
+			}
+			if cookies.Valid {
+				req.cookies = cookies.String
+			} else {
+				req.cookies = "(none)"
+			}
+			t, err := time.Parse("2006-01-02 15:04:05", datestr)
+			if err != nil {
+				panic(err.Error())
+			}
+			req.access_time = t.Unix()
+			c <- req
+		}
+		close(c)
+	} ()
+
+	return c
 }
 
 // Map from user name to user id
-func userIds(db *sql.DB) map[string]int { 
+func getUserIds(db *sql.DB) map[string]int { 
 	rows, err := db.Query("SELECT id, user_name FROM user")
 	if err != nil {
 		panic(err.Error())
@@ -82,9 +125,14 @@ func userIds(db *sql.DB) map[string]int {
 
 
 func tagRequestUsers(db *sql.DB) {
-	user_ids := userIds(db)
-	fmt.Println(user_ids)
+	userIds := getUserIds(db)
 
+	for req := range allRequests(db) {
+		fmt.Println(req)
+	}
+
+
+	println(userIds) // TODO do something with them
 	/*
 	done, tableName := makeTable("request_users", "INT request_id, INT user_id")
 	if (done) {
