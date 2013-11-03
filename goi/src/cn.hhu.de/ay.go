@@ -128,10 +128,9 @@ func readSettings(fn string) Settings {
 	return settings
 }
 
-// TODO: add emails
 // Map from user name to user id
 func getUserIds(db *sql.DB) map[string]int { 
-	rows, err := db.Query("SELECT id, user_name FROM user")
+	rows, err := db.Query("SELECT id, email, user_name FROM user")
 	if err != nil {
 		panic(err.Error())
 	}
@@ -140,12 +139,14 @@ func getUserIds(db *sql.DB) map[string]int {
 	for rows.Next() {
 		var id int
 		var name string
+		var email string
 
-		err = rows.Scan(&id, &name)
+		err = rows.Scan(&id, &email, &name)
 		if err != nil {
 			panic(err.Error())
 		}
 		res[name] = id
+		res[email] = id
 	}
 	return res
 }
