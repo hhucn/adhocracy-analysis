@@ -1,6 +1,8 @@
 package main
 
 import (
+	"./counter"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -8,13 +10,10 @@ import (
 	"os"
 	"strings"
 	"time"
+	_ "github.com/go-sql-driver/mysql"
 )
 
 
-import (
-    "database/sql"
-    _ "github.com/go-sql-driver/mysql"
-)
 
 
 type Request struct {
@@ -63,7 +62,8 @@ func allRequests(db *sql.DB, settings Settings) <-chan Request {
 	go func() {
 		rows, err := db.Query(
 			"SELECT id, access_time, ip_address, request_url, cookies, user_agent, referer " +
-			"FROM requestlog WHERE access_time >= ? and access_time <= ?",
+			"FROM requestlog WHERE access_time >= ? and access_time <= ? " +
+			"AND user_agent NOT LIKE 'ApacheBench/%' AND user_agent NOT LIKE 'Pingdom.com%'",
 			settings.StartDate, settings.EndDate)
 		// TODO filter by date
 		if err != nil {
@@ -115,18 +115,17 @@ type Settings struct {
 }
 
 func readSettings(fn string) Settings {
-    jsonCode, err := ioutil.ReadFile(fn)
-    if err != nil {
-        panic(err.Error())
-    }
+	jsonCode, err := ioutil.ReadFile(fn)
+	if err != nil {
+		panic(err.Error())
+	}
  
-    var settings Settings
-    jerr := json.Unmarshal(jsonCode, &settings)
-    if jerr != nil {
-    	panic(jerr.Error())
-    }
-    fmt.Println()
-    return settings
+	var settings Settings
+	jerr := json.Unmarshal(jsonCode, &settings)
+	if jerr != nil {
+		panic(jerr.Error())
+	}
+	return settings
 }
 
 // TODO: add emails
@@ -176,6 +175,15 @@ func tagRequestUsers(db *sql.DB, settings Settings) {
 
 }
 
+func listUserAgents(db *sql.DB, settings Settings) {
+	uaCounts := counter.NewCounter()
+	for req := range allRequests(db, settings) {
+		uaCounts.Count(req.user_agent)
+	}
+	for _, it := range uaCounts.MostCommon() {
+		fmt.Printf("%8d %s\n", it.Value, it.Key)
+	}
+}
 
 func main() {
 	cfgFile := flag.String("config", ".ayconfig", "Configuration file to read from")
@@ -201,6 +209,8 @@ func main() {
 	switch action {
 	case "tagRequestUsers":
 		tagRequestUsers(db, settings)
+	case "listUserAgents":
+		listUserAgents(db, settings)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown action %s\n", action)
 		os.Exit(2)
