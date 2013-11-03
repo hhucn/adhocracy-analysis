@@ -58,10 +58,13 @@ func makeTable(name string, definitions string) (bool, string) {
 	return false, tableName
 }
 
-func allRequests(db *sql.DB) <-chan Request {
+func allRequests(db *sql.DB, settings Settings) <-chan Request {
 	c := make(chan Request, 1000)
 	go func() {
-		rows, err := db.Query("SELECT id, access_time, ip_address, request_url, cookies, user_agent, referer FROM requestlog")
+		rows, err := db.Query(
+			"SELECT id, access_time, ip_address, request_url, cookies, user_agent, referer " +
+			"FROM requestlog WHERE access_time >= ? and access_time <= ?",
+			settings.StartDate, settings.EndDate)
 		// TODO filter by date
 		if err != nil {
 			panic(err.Error())
@@ -107,6 +110,8 @@ func allRequests(db *sql.DB) <-chan Request {
 
 type Settings struct {
 	Dsn string
+	StartDate string
+	EndDate string
 }
 
 func readSettings(fn string) Settings {
@@ -147,10 +152,10 @@ func getUserIds(db *sql.DB) map[string]int {
 }
 
 
-func tagRequestUsers(db *sql.DB) {
+func tagRequestUsers(db *sql.DB, settings Settings) {
 	userIds := getUserIds(db)
 
-	for req := range allRequests(db) {
+	for req := range allRequests(db, settings) {
 		fmt.Println(req)
 	}
 
@@ -195,7 +200,7 @@ func main() {
 
 	switch action {
 	case "tagRequestUsers":
-		tagRequestUsers(db)
+		tagRequestUsers(db, settings)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown action %s\n", action)
 		os.Exit(2)
