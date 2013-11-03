@@ -1,6 +1,14 @@
+filter by date in SQL -> July 2
 data tranow
 	who did what active?
+	-> tag user in requests
+	-> tag user activity
+write load_requests to load data from apache log
+helper script to FIX IP addresses!!!
+
 request paths, how do people navigate
+activity by date
+activity by time
 
 how long on site?
 	break down by

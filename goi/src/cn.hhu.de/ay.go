@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"strings"
 	"time"
@@ -60,6 +62,7 @@ func allRequests(db *sql.DB) <-chan Request {
 	c := make(chan Request, 1000)
 	go func() {
 		rows, err := db.Query("SELECT id, access_time, ip_address, request_url, cookies, user_agent, referer FROM requestlog")
+		// TODO filter by date
 		if err != nil {
 			panic(err.Error())
 		}
@@ -102,6 +105,26 @@ func allRequests(db *sql.DB) <-chan Request {
 	return c
 }
 
+type Settings struct {
+	Dsn string
+}
+
+func readSettings(fn string) Settings {
+    jsonCode, err := ioutil.ReadFile(fn)
+    if err != nil {
+        panic(err.Error())
+    }
+ 
+    var settings Settings
+    jerr := json.Unmarshal(jsonCode, &settings)
+    if jerr != nil {
+    	panic(jerr.Error())
+    }
+    fmt.Println()
+    return settings
+}
+
+// TODO: add emails
 // Map from user name to user id
 func getUserIds(db *sql.DB) map[string]int { 
 	rows, err := db.Query("SELECT id, user_name FROM user")
@@ -150,8 +173,14 @@ func tagRequestUsers(db *sql.DB) {
 
 
 func main() {
-	fulldsn := flag.String("dsn", "mysql:normsetzung@/normsetzung", "The database connection string")
+	cfgFile := flag.String("config", ".ayconfig", "Configuration file to read from")
+	fulldsn := flag.String("dsn", "(from config)", "The database connection string")
 	flag.Parse()
+
+	settings := readSettings(*cfgFile)
+	if *fulldsn == "(from config)" {
+		*fulldsn = settings.Dsn
+	}
 
 	positional_args := flag.Args()
 	if len(positional_args) < 1 {
