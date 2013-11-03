@@ -65,7 +65,6 @@ func allRequests(db *sql.DB, settings Settings) <-chan Request {
 			"FROM requestlog WHERE access_time >= ? and access_time <= ? " +
 			"AND user_agent NOT LIKE 'ApacheBench/%' AND user_agent NOT LIKE 'Pingdom.com%' AND user_agent NOT LIKE '%bot%'",
 			settings.StartDate, settings.EndDate)
-		// TODO filter by date
 		if err != nil {
 			panic(err.Error())
 		}
