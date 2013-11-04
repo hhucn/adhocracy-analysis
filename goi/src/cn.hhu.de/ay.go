@@ -9,8 +9,10 @@ import (
 	"io/ioutil"
 	"os"
 	"strings"
+	"regexp"
 	"time"
 	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 
@@ -26,6 +28,17 @@ type Request struct {
 	referer string
 }
 
+func assertMsg(b bool, msg string) {
+	if !b {
+		panic("Assertion failed: " + msg);
+	}
+}
+
+func assertMust(e error, msg string) {
+	if e != nil {
+		panic(msg + e.Error())
+	}
+}
 
 func partition(s string, sep string) (string, string, string) {
 	parts := strings.SplitN(s, sep, 2)
@@ -49,12 +62,33 @@ func connectDb(fulldsn string) *sql.DB {
 }
 
 // Creates an analysis table and returns whether the table was already present and its final name.
-func makeTable(name string, definitions string) (bool, string) {
-	tableName := "analysis_" + name 
-	sql := "CREATE TABLE " + tableName + " " + definitions;
-	println("TODO" + sql)
+func makeTable(db *sql.DB, name string, definitions string) (bool, string) {
+	tableName := "analysis_" + name
+
+	_, err := db.Exec("select 1 from " + tableName + " limit 0")
+	if err == nil {
+		return true, tableName
+	}
+
+	sql := "CREATE TABLE " + tableName + " (" + definitions + ")";
+	_, createErr := db.Exec(sql)
+	if createErr != nil {
+		panic(createErr.Error())
+	}
 
 	return false, tableName
+}
+
+func makeNewTable(db *sql.DB, name string, definitions string) string {
+	exists, tname := makeTable(db, name, definitions)
+	if exists {
+		_, err := db.Exec("DROP TABLE " + tname)
+		assertMust(err, "err != nil")
+		exists, tname2 := makeTable(db, name, definitions)
+		assertMsg(tname == tname2, "equal table names")
+		assertMsg(! exists, "! exists")
+	}
+	return tname
 }
 
 func allRequests(db *sql.DB, settings Settings) <-chan Request {
@@ -152,26 +186,29 @@ func getUserIds(db *sql.DB) map[string]int {
 
 
 func tagRequestUsers(db *sql.DB, settings Settings) {
+	table := makeNewTable(db, "request_users", "request_id INT, user_id INT")
 	userIds := getUserIds(db)
 
-	for req := range allRequests(db, settings) {
-		fmt.Println(req)
-	}
-
-
-	println(userIds) // TODO do something with them
-	/*
-	done, tableName := makeTable("request_users", "INT request_id, INT user_id")
-	if (done) {
-		return
-	}
-	println(tableName)
-
-	stmtIns, err := db.Prepare("INSERT INTO squareNum VALUES( ?, ? )")
+	stmtIns, err := db.Prepare("INSERT INTO " + table + " VALUES(?, ?)")
 	if err != nil {
 		panic(err.Error())
 	}
-	defer stmtIns.Close()*/
+	defer stmtIns.Close()
+	welcome_re := regexp.MustCompile("^/(?:i/[a-z_]+/)?welcome/([A-Za-z0-9_.-]+)")
+
+	for req := range allRequests(db, settings) {
+		// Welcome URL
+		m := welcome_re.FindStringSubmatch(req.request_url)
+		if len(m) > 0 {
+			userId, found := userIds[m[1]]
+			stmtIns.Exec(req.id, userId)
+			if ! found {
+				println("Could not find user " + m[1])
+			}
+		}
+
+		//TODO: extract user name from cookie
+	}
 
 }
 
@@ -211,6 +248,10 @@ func main() {
 		tagRequestUsers(db, settings)
 	case "listUserAgents":
 		listUserAgents(db, settings)
+	case "listUserIds":
+		for name, id := range getUserIds(db) {
+			fmt.Printf("%s : %d\n", name, id)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown action %s\n", action)
 		os.Exit(2)

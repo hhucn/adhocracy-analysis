@@ -1,10 +1,12 @@
 data tranow
 	who did what active?
-	-> tag user in requests
-	-> tag user activity
+	-> tag user activity (writing something ...)
+	-> compound
 try saving requests as protobuf
 write load_requests to load data from apache log
 helper script to FIX IP addresses!!!
+
+does setting a password correlate with user activity, user platform, status group, faculty?
 
 request paths, how do people navigate
 activity by date
