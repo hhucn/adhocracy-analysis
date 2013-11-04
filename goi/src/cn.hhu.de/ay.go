@@ -201,8 +201,10 @@ func tagRequestUsers(db *sql.DB, settings Settings) {
 		m := welcome_re.FindStringSubmatch(req.request_url)
 		if len(m) > 0 {
 			userId, found := userIds[m[1]]
-			stmtIns.Exec(req.id, userId)
-			if ! found {
+			
+			if found {
+				stmtIns.Exec(req.id, userId)
+			} else {
 				println("Could not find user " + m[1])
 			}
 		}
