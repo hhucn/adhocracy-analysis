@@ -191,7 +191,7 @@ type User struct {
 }
 
 func getAllUsers(db *sql.DB) []User {
-	rows, err := db.Query("SELECT id, email, user_name FROM user")
+	rows, err := db.Query("SELECT id, email, display_name FROM user")
 	if err != nil {
 		panic(err.Error())
 	}
@@ -263,7 +263,24 @@ func getUserActivity(db *sql.DB) map[int]*UserActivity {
 		res[userId].ProposalCount = count
 	}
 
-	// TODO: vote count
+	rows, err = db.Query(`
+		select user.id as user_id, count(vote.id) as vote_count
+		from user, vote
+		where
+			user.id = vote.user_id
+		group by user.id`)
+	if err != nil {
+		panic(err.Error())
+	}
+	for rows.Next() {
+		var userId int
+		var count int
+		err = rows.Scan(&userId, &count)
+		if err != nil {
+			panic(err.Error())
+		}
+		res[userId].VoteCount = count
+	}
 
 	return res
 }

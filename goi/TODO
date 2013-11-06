@@ -1,11 +1,9 @@
 data tranow
-	exec
-	* get vote counts
 	* get visited
 	* get badge
-	* aggregate info
 	* CSV / write target
 	* run
+	* check for admin
 	* write to thumb drive
 
 	who did what active?
