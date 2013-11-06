@@ -1,14 +1,39 @@
 data tranow
+	exec
+	* get vote counts
+	* get visited
+	* get badge
+	* aggregate info
+	* CSV / write target
+	* run
+	* write to thumb drive
+
 	who did what active?
 	-> tag user activity (writing something ...)
 	-> compound
+
+fix umlauts
 try saving requests as protobuf
 write load_requests to load data from apache log
 helper script to FIX IP addresses!!!
 
 does setting a password correlate with user activity, user platform, status group, faculty?
+performance correlate
 
+Activity
+	-> Diversity (where)
+	Reading
+		Number of threads
+		Length
+	Writing
+		Quality
+		Length
+	Voting
+		Do they change how they vote
+			-> Can we detect why (with a diff)
+			How often
 request paths, how do people navigate
+
 activity by date
 activity by time
 
@@ -24,3 +49,4 @@ parse performance data
 details
 	.. by faculty
 	.. by user activity
+

@@ -1,5 +1,6 @@
 {
 	"dsn": "mysql:normsetzung@/normsetzung",
 	"startdate": "2013-07-02",
-	"enddate": "2013-09-30"
+	"enddate": "2013-09-30",
+	"activity_badges": ["Fakkultätsrat"]
 }

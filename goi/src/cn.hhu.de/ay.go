@@ -162,7 +162,7 @@ func readSettings(fn string) Settings {
 }
 
 // Map from user name to user id
-func getUserIds(db *sql.DB) map[string]int { 
+func getUserIdMap(db *sql.DB) map[string]int { 
 	rows, err := db.Query("SELECT id, email, user_name FROM user")
 	if err != nil {
 		panic(err.Error())
@@ -184,10 +184,93 @@ func getUserIds(db *sql.DB) map[string]int {
 	return res
 }
 
+type User struct {
+	id int
+	name string
+	email string
+}
+
+func getAllUsers(db *sql.DB) []User {
+	rows, err := db.Query("SELECT id, email, user_name FROM user")
+	if err != nil {
+		panic(err.Error())
+	}
+
+	res := []User{}
+	for rows.Next() {
+		var u User
+		err = rows.Scan(&u.id, &u.email, &u.name)
+		if err != nil {
+			panic(err.Error())
+		}
+		res = append(res, u)
+	}
+	return res
+}
+
+type UserActivity struct {
+	user User
+	CommentCount int
+	ProposalCount int
+	VoteCount int
+}
+func getUserActivity(db *sql.DB) map[int]*UserActivity {
+	res := make(map[int]*UserActivity)
+	for _, u := range getAllUsers(db) {
+		ua := new(UserActivity)
+		ua.user = u
+		res[u.id] = ua
+	}
+
+	rows, err := db.Query(`
+		select user.id as user_id, count(comment.id) as comment_count
+		from user, comment
+		where
+			comment.delete_time IS NULL and
+			user.id = comment.creator_id
+		group by user.id`)
+	if err != nil {
+		panic(err.Error())
+	}
+	for rows.Next() {
+		var userId int
+		var count int
+		err = rows.Scan(&userId, &count)
+		if err != nil {
+			panic(err.Error())
+		}
+		res[userId].CommentCount = count
+	}
+
+	rows, err = db.Query(`
+		select user.id as user_id, count(delegateable.id) as proposal_count
+		from user, delegateable
+		where
+			delegateable.delete_time IS NULL and
+			user.id = delegateable.creator_id and
+			delegateable.type = "proposal"
+		group by user.id`)
+	if err != nil {
+		panic(err.Error())
+	}
+	for rows.Next() {
+		var userId int
+		var count int
+		err = rows.Scan(&userId, &count)
+		if err != nil {
+			panic(err.Error())
+		}
+		res[userId].ProposalCount = count
+	}
+
+	// TODO: vote count
+
+	return res
+}
 
 func tagRequestUsers(db *sql.DB, settings Settings) {
 	table := makeNewTable(db, "request_users", "request_id INT, user_id INT")
-	userIds := getUserIds(db)
+	userIds := getUserIdMap(db)
 
 	stmtIns, err := db.Prepare("INSERT INTO " + table + " VALUES(?, ?)")
 	if err != nil {
@@ -195,21 +278,31 @@ func tagRequestUsers(db *sql.DB, settings Settings) {
 	}
 	defer stmtIns.Close()
 	welcome_re := regexp.MustCompile("^/(?:i/[a-z_]+/)?welcome/([A-Za-z0-9_.-]+)")
+	cookie_re := regexp.MustCompile("adhocracy_login=[0-9a-f]{40}([^!]+)!")
+
+	tagUser := func(requestId int, userName string) {
+		userId, found := userIds[userName]
+		if found {
+			stmtIns.Exec(requestId, userId)
+		} else {
+			fmt.Printf("Could not find user %s\n", userName)
+		}
+	}
 
 	for req := range allRequests(db, settings) {
 		// Welcome URL
 		m := welcome_re.FindStringSubmatch(req.request_url)
 		if len(m) > 0 {
-			userId, found := userIds[m[1]]
-			
-			if found {
-				stmtIns.Exec(req.id, userId)
-			} else {
-				println("Could not find user " + m[1])
-			}
+			tagUser(req.id, m[1])
+			continue
 		}
 
-		//TODO: extract user name from cookie
+		// Cookie
+		m = cookie_re.FindStringSubmatch(req.cookies)
+		if len(m) > 0 {
+			tagUser(req.id, m[1])
+			continue
+		}
 	}
 
 }
@@ -221,6 +314,13 @@ func listUserAgents(db *sql.DB, settings Settings) {
 	}
 	for _, it := range uaCounts.MostCommon() {
 		fmt.Printf("%8d %s\n", it.Value, it.Key)
+	}
+}
+
+func classifyUsers(db *sql.DB, settings Settings) {
+	for _, activity := range getUserActivity(db) {
+		fmt.Println(activity)
+		// TODO csv
 	}
 }
 
@@ -250,8 +350,10 @@ func main() {
 		tagRequestUsers(db, settings)
 	case "listUserAgents":
 		listUserAgents(db, settings)
+	case "classifyUsers":
+		classifyUsers(db, settings)
 	case "listUserIds":
-		for name, id := range getUserIds(db) {
+		for name, id := range getUserIdMap(db) {
 			fmt.Printf("%s : %d\n", name, id)
 		}
 	default:
