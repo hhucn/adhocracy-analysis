@@ -1,15 +1,4 @@
-data tranow
-	* get badge
-	* CSV / write target
-	* run
-	* check for admin
-	* write to thumb drive
-
-	who did what active?
-	-> tag user activity (writing something ...)
-	-> compound
-
-fix umlauts
+fix umlauts in terminal
 try saving requests as protobuf
 write load_requests to load data from apache log
 helper script to FIX IP addresses!!!

@@ -302,7 +302,30 @@ func getUserActivity(db *sql.DB) map[int]*UserActivity {
 		res[userId].RequestCount = count
 	}
 
+	return res
+}
 
+// Returns a set of users with the given badge
+func getUserIdsWithBadge(db *sql.DB, badge string) map[int]int {
+	rows, err := db.Query(`
+		select user_badges.user_id
+		from user_badges, badge
+		where
+			user_badges.badge_id = badge.id and
+			badge.title = ?
+		`, badge)
+	if err != nil {
+		panic(err.Error())
+	}
+	res := make(map[int]int)
+	for rows.Next() {
+		var userId int
+		err = rows.Scan(&userId)
+		if err != nil {
+			panic(err.Error())
+		}
+		res[userId] = 1
+	}
 	return res
 }
 
@@ -358,7 +381,35 @@ func listUserAgents(db *sql.DB, settings Settings) {
 func classifyUsers(db *sql.DB, settings Settings) {
 	for _, activity := range getUserActivity(db) {
 		fmt.Println(activity)
-		// TODO csv
+	}
+}
+
+// HHU-specific analysis
+func tranow_classifyUsers(db *sql.DB, settings Settings, badge string) {
+	usersWithBadge := getUserIdsWithBadge(db, badge)
+	for _, activity := range getUserActivity(db) {
+		_, hasBadge := usersWithBadge[activity.user.id]
+		var badgeStr string
+		if hasBadge {
+			badgeStr = "Ja"
+		} else {
+			badgeStr = "Nein"
+		}
+
+		var beteiligungStr string
+		switch {
+		case activity.ProposalCount > 0 || activity.CommentCount > 0:
+			beteiligungStr = "intensiv"
+		case activity.VoteCount > 0:
+			beteiligungStr = "gering"
+		case activity.RequestCount > 0:
+			beteiligungStr = "besucht"
+		default:
+			beteiligungStr = "keine"
+		}
+
+		fmt.Printf("%s,%s,%s,%s\n",
+			activity.user.name, activity.user.email, badgeStr, beteiligungStr)
 	}
 }
 
@@ -390,6 +441,8 @@ func main() {
 		listUserAgents(db, settings)
 	case "classifyUsers":
 		classifyUsers(db, settings)
+	case "tranow_classifyUsers":
+		tranow_classifyUsers(db, settings, positional_args[1])
 	case "listUserIds":
 		for name, id := range getUserIdMap(db) {
 			fmt.Printf("%s : %d\n", name, id)
