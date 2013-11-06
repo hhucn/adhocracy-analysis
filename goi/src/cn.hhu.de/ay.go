@@ -213,6 +213,7 @@ type UserActivity struct {
 	CommentCount int
 	ProposalCount int
 	VoteCount int
+	RequestCount int
 }
 func getUserActivity(db *sql.DB) map[int]*UserActivity {
 	res := make(map[int]*UserActivity)
@@ -281,6 +282,26 @@ func getUserActivity(db *sql.DB) map[int]*UserActivity {
 		}
 		res[userId].VoteCount = count
 	}
+
+	rows, err = db.Query(`
+		select user.id, count(analysis_request_users.user_id) as request_count
+		from user, analysis_request_users
+		where
+			user.id = analysis_request_users.user_id
+		group by user.id`)
+	if err != nil {
+		panic(err.Error())
+	}
+	for rows.Next() {
+		var userId int
+		var count int
+		err = rows.Scan(&userId, &count)
+		if err != nil {
+			panic(err.Error())
+		}
+		res[userId].RequestCount = count
+	}
+
 
 	return res
 }
