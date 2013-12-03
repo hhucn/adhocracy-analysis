@@ -9,4 +9,4 @@ ROOT=$(readlink -f $(dirname "$0")/..)
 ./run.sh fixIPs
 ./run.sh tagRequestUsers
 ./run.sh tranow_classifyUsers Fakultätsrat | sort > $ROOT/output/classification_tranow.csv
-
+./run.sh tobias_poll > $ROOT/output/tobias_poll
