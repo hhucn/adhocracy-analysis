@@ -54,13 +54,21 @@ func makeNewTable(db *sql.DB, name string, definitions string) string {
 }
 
 func allRequests(db *sql.DB, settings Settings) <-chan Request {
+	return allRequestsWhere(
+		db,
+		"(access_time >= ? and access_time <= ?)",
+		settings.StartDate, settings.EndDate)
+}
+
+func allRequestsWhere(db *sql.DB, where string, args ...interface{}) <-chan Request {
 	c := make(chan Request, 1000)
 	go func() {
 		rows, err := db.Query(
 			"SELECT id, access_time, ip_address, request_url, cookies, user_agent, referer " +
-			"FROM requestlog WHERE access_time >= ? and access_time <= ? " +
+			"FROM requestlog " +
+			"WHERE " + where + " " +
 			"AND user_agent NOT LIKE 'ApacheBench/%' AND user_agent NOT LIKE 'Pingdom.com%' AND user_agent NOT LIKE '%bot%'",
-			settings.StartDate, settings.EndDate)
+			args...)
 		if err != nil {
 			panic(err.Error())
 		}
@@ -104,7 +112,7 @@ func allRequests(db *sql.DB, settings Settings) <-chan Request {
 }
 
 func fixIPs(db *sql.DB, settings Settings, filename string) {
-	
+	// TODO
 }
 
  
@@ -331,35 +339,6 @@ func classifyUsers(db *sql.DB, settings Settings) {
 	}
 }
 
-// HHU-specific analysis
-func tranow_classifyUsers(db *sql.DB, settings Settings, badge string) {
-	usersWithBadge := getUserIdsWithBadge(db, badge)
-	for _, activity := range getUserActivity(db) {
-		_, hasBadge := usersWithBadge[activity.user.id]
-		var badgeStr string
-		if hasBadge {
-			badgeStr = "Ja"
-		} else {
-			badgeStr = "Nein"
-		}
-
-		var beteiligungStr string
-		switch {
-		case activity.ProposalCount > 0 || activity.CommentCount > 0:
-			beteiligungStr = "intensiv"
-		case activity.VoteCount > 0:
-			beteiligungStr = "gering"
-		case activity.RequestCount > 0:
-			beteiligungStr = "besucht"
-		default:
-			beteiligungStr = "keine"
-		}
-
-		fmt.Printf("%s,%s,%s,%s\n",
-			activity.user.name, activity.user.email, badgeStr, beteiligungStr)
-	}
-}
-
 func argumentError(msg string) {
 	println(msg)
 	flag.Usage()
@@ -396,6 +375,8 @@ func main() {
 		fixIPs(db, settings, positional_args[1])
 	case "tranow_classifyUsers":
 		tranow_classifyUsers(db, settings, positional_args[1])
+	case "tobias_poll":
+		tobias_poll(db, settings)
 	case "listUserIds":
 		for name, id := range getUserIdMap(db) {
 			fmt.Printf("%s : %d\n", name, id)

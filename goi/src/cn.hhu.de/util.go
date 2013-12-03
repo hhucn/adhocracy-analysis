@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"strings"
+	"regexp"
 )
 
 func assertMsg(b bool, msg string) {
@@ -36,4 +37,10 @@ func connectDb(fulldsn string) *sql.DB {
 		panic(err.Error())
 	}
 	return db
+}
+
+func re_match(pattern string, input string) bool {
+	match, err := regexp.MatchString(pattern, input)
+	assertMust(err, "Invalid regexp")
+	return match
 }
