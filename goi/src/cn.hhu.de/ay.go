@@ -3,19 +3,14 @@ package main
 import (
 	"./counter"
 	"database/sql"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
-	"strings"
 	"regexp"
 	"time"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/mattn/go-sqlite3"
 )
-
-
 
 
 type Request struct {
@@ -26,39 +21,6 @@ type Request struct {
 	cookies string
 	user_agent string
 	referer string
-}
-
-func assertMsg(b bool, msg string) {
-	if !b {
-		panic("Assertion failed: " + msg);
-	}
-}
-
-func assertMust(e error, msg string) {
-	if e != nil {
-		panic(msg + e.Error())
-	}
-}
-
-func partition(s string, sep string) (string, string, string) {
-	parts := strings.SplitN(s, sep, 2)
-	if len(parts) == 1 {
-		return parts[0], "", ""
-	}
-	return parts[0], sep, parts[1]
-}
-
-func connectDb(fulldsn string) *sql.DB {
-	dbtype, _, dsn := partition(fulldsn, ":")
-	db, err := sql.Open(dbtype, dsn)
-	if err != nil {
-		panic(err.Error())
-	}
-	err = db.Ping()
-	if err != nil {
-		panic(err.Error())
-	}
-	return db
 }
 
 // Creates an analysis table and returns whether the table was already present and its final name.
@@ -141,26 +103,11 @@ func allRequests(db *sql.DB, settings Settings) <-chan Request {
 	return c
 }
 
-type Settings struct {
-	Dsn string
-	StartDate string
-	EndDate string
+func fixIPs(db *sql.DB, settings Settings, filename string) {
+	
 }
 
-func readSettings(fn string) Settings {
-	jsonCode, err := ioutil.ReadFile(fn)
-	if err != nil {
-		panic(err.Error())
-	}
  
-	var settings Settings
-	jerr := json.Unmarshal(jsonCode, &settings)
-	if jerr != nil {
-		panic(jerr.Error())
-	}
-	return settings
-}
-
 // Map from user name to user id
 func getUserIdMap(db *sql.DB) map[string]int { 
 	rows, err := db.Query("SELECT id, email, user_name FROM user")
@@ -413,6 +360,12 @@ func tranow_classifyUsers(db *sql.DB, settings Settings, badge string) {
 	}
 }
 
+func argumentError(msg string) {
+	println(msg)
+	flag.Usage()
+	os.Exit(2)
+}
+
 func main() {
 	cfgFile := flag.String("config", ".ayconfig", "Configuration file to read from")
 	fulldsn := flag.String("dsn", "(from config)", "The database connection string")
@@ -425,9 +378,7 @@ func main() {
 
 	positional_args := flag.Args()
 	if len(positional_args) < 1 {
-		println("No action specified")
-		flag.Usage()
-		os.Exit(2)
+		argumentError("No action specified")
 	}
 	action := positional_args[0]
 
@@ -441,6 +392,8 @@ func main() {
 		listUserAgents(db, settings)
 	case "classifyUsers":
 		classifyUsers(db, settings)
+	case "fixIPs":
+		fixIPs(db, settings, positional_args[1])
 	case "tranow_classifyUsers":
 		tranow_classifyUsers(db, settings, positional_args[1])
 	case "listUserIds":

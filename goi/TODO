@@ -1,7 +1,8 @@
-fix umlauts in terminal
+helper script to FIX IP addresses!!!
+	target fix-ips
+
 try saving requests as protobuf
 write load_requests to load data from apache log
-helper script to FIX IP addresses!!!
 
 does setting a password correlate with user activity, user platform, status group, faculty?
 performance correlate
