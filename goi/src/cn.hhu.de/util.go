@@ -44,3 +44,11 @@ func re_match(pattern string, input string) bool {
 	assertMust(err, "Invalid regexp")
 	return match
 }
+
+func db2int(v sql.NullInt64) int {
+	 if (v.Valid) {
+	 	return int(v.Int64)
+	 } else {
+	 	return 0
+	 }
+}

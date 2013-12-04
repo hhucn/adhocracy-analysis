@@ -23,6 +23,8 @@ type Request struct {
 	referer string
 }
 
+const BUFSIZE int = 1000
+
 // Creates an analysis table and returns whether the table was already present and its final name.
 func makeTable(db *sql.DB, name string, definitions string) (bool, string) {
 	tableName := "analysis_" + name
@@ -170,94 +172,85 @@ type UserActivity struct {
 	VoteCount int
 	RequestCount int
 }
-func getUserActivity(db *sql.DB) map[int]*UserActivity {
-	res := make(map[int]*UserActivity)
-	for _, u := range getAllUsers(db) {
-		ua := new(UserActivity)
-		ua.user = u
-		res[u.id] = ua
-	}
+func getUserActivity(db *sql.DB) (<-chan *UserActivity) {
+	c := make(chan *UserActivity, BUFSIZE)
 
-	rows, err := db.Query(`
-		select user.id as user_id, count(comment.id) as comment_count
-		from user, comment
-		where
-			comment.delete_time IS NULL and
-			user.id = comment.creator_id
-		group by user.id`)
-	if err != nil {
-		panic(err.Error())
-	}
-	for rows.Next() {
-		var userId int
-		var count int
-		err = rows.Scan(&userId, &count)
+	go func() {
+		rows, err := db.Query(`
+		SELECT user.id, user.display_name, user.email,
+			CommentCount.comment_count, ProposalCount.proposal_count, VoteCount.vote_count, RequestCount.request_count
+		FROM user
+
+		LEFT OUTER JOIN (
+			select user.id as user_id, count(comment.id) as comment_count
+			from user, comment
+			where
+				comment.delete_time IS NULL and
+				user.id = comment.creator_id
+			group by user.id
+		) CommentCount
+		ON user.id = CommentCount.user_id
+
+		LEFT OUTER JOIN (
+			select user.id as user_id, count(delegateable.id) as proposal_count
+			from user, delegateable
+			where
+				delegateable.delete_time IS NULL and
+				user.id = delegateable.creator_id and
+				delegateable.type = "proposal"
+			group by user.id
+		) ProposalCount
+		ON user.id = ProposalCount.user_id
+
+		LEFT OUTER JOIN (
+			select user.id as user_id, count(vote.id) as vote_count
+			from user, vote
+			where
+				user.id = vote.user_id
+			group by user.id
+		) VoteCount
+		ON user.id = VoteCount.user_id
+
+		LEFT OUTER JOIN (
+			select user.id as user_id, count(analysis_request_users.user_id) as request_count
+			from user, analysis_request_users
+			where
+				user.id = analysis_request_users.user_id
+			group by user.id
+		) RequestCount
+		ON user.id = RequestCount.user_id
+		`)
 		if err != nil {
 			panic(err.Error())
 		}
-		res[userId].CommentCount = count
-	}
+		for rows.Next() {
+			u := new(User)
+			ua := new(UserActivity)
 
-	rows, err = db.Query(`
-		select user.id as user_id, count(delegateable.id) as proposal_count
-		from user, delegateable
-		where
-			delegateable.delete_time IS NULL and
-			user.id = delegateable.creator_id and
-			delegateable.type = "proposal"
-		group by user.id`)
-	if err != nil {
-		panic(err.Error())
-	}
-	for rows.Next() {
-		var userId int
-		var count int
-		err = rows.Scan(&userId, &count)
-		if err != nil {
-			panic(err.Error())
+			var (
+				_CommentCount sql.NullInt64
+				_ProposalCount sql.NullInt64
+				_VoteCount sql.NullInt64
+				_RequestCount sql.NullInt64
+			)
+
+			err = rows.Scan(
+				&u.id, &u.name, &u.email,
+				&_CommentCount, &_ProposalCount, &_VoteCount, &_RequestCount)
+			if err != nil {
+				panic(err.Error())
+			}
+
+			ua.CommentCount = db2int(_CommentCount)
+			ua.ProposalCount = db2int(_ProposalCount)
+			ua.VoteCount = db2int(_VoteCount)
+			ua.RequestCount = db2int(_RequestCount)
+			ua.user = *u
+			c <- ua
 		}
-		res[userId].ProposalCount = count
-	}
-
-	rows, err = db.Query(`
-		select user.id as user_id, count(vote.id) as vote_count
-		from user, vote
-		where
-			user.id = vote.user_id
-		group by user.id`)
-	if err != nil {
-		panic(err.Error())
-	}
-	for rows.Next() {
-		var userId int
-		var count int
-		err = rows.Scan(&userId, &count)
-		if err != nil {
-			panic(err.Error())
-		}
-		res[userId].VoteCount = count
-	}
-
-	rows, err = db.Query(`
-		select user.id, count(analysis_request_users.user_id) as request_count
-		from user, analysis_request_users
-		where
-			user.id = analysis_request_users.user_id
-		group by user.id`)
-	if err != nil {
-		panic(err.Error())
-	}
-	for rows.Next() {
-		var userId int
-		var count int
-		err = rows.Scan(&userId, &count)
-		if err != nil {
-			panic(err.Error())
-		}
-		res[userId].RequestCount = count
-	}
-
-	return res
+		close(c)
+	}()
+	return c
 }
 
 // Returns a set of users with the given badge
@@ -334,7 +327,7 @@ func listUserAgents(db *sql.DB, settings Settings) {
 }
 
 func classifyUsers(db *sql.DB, settings Settings) {
-	for _, activity := range getUserActivity(db) {
+	for activity := range getUserActivity(db) {
 		fmt.Println(activity)
 	}
 }
@@ -377,6 +370,8 @@ func main() {
 		tranow_classifyUsers(db, settings, positional_args[1])
 	case "tobias_poll":
 		tobias_poll(db, settings)
+	case "tobias_activityPhases":
+		tobias_activityPhases(db, settings)
 	case "listUserIds":
 		for name, id := range getUserIdMap(db) {
 			fmt.Printf("%s : %d\n", name, id)

@@ -9,9 +9,22 @@ import (
 
 // HHU-specific analysis
 
+func classifyUser(activity *UserActivity) string {
+	switch {
+	case activity.ProposalCount > 0 || activity.CommentCount > 0:
+		return "intensiv"
+	case activity.VoteCount > 0:
+		return "gering"
+	case activity.RequestCount > 0:
+		return "besucht"
+	default:
+		return "keine"
+	}
+}
+
 func tranow_classifyUsers(db *sql.DB, settings Settings, badge string) {
 	usersWithBadge := getUserIdsWithBadge(db, badge)
-	for _, activity := range getUserActivity(db) {
+	for activity := range getUserActivity(db) {
 		_, hasBadge := usersWithBadge[activity.user.id]
 		var badgeStr string
 		if hasBadge {
@@ -20,21 +33,18 @@ func tranow_classifyUsers(db *sql.DB, settings Settings, badge string) {
 			badgeStr = "Nein"
 		}
 
-		var beteiligungStr string
-		switch {
-		case activity.ProposalCount > 0 || activity.CommentCount > 0:
-			beteiligungStr = "intensiv"
-		case activity.VoteCount > 0:
-			beteiligungStr = "gering"
-		case activity.RequestCount > 0:
-			beteiligungStr = "besucht"
-		default:
-			beteiligungStr = "keine"
-		}
-
+		beteiligungStr := classifyUser(activity)
 		fmt.Printf("%s,%s,%s,%s\n",
 			activity.user.name, activity.user.email, badgeStr, beteiligungStr)
 	}
+}
+
+func tobias_activityPhases(db *sql.DB, settings Settings) {
+	for activity := range getUserActivity(db) {
+		beteiligungStr := classifyUser(activity)
+		fmt.Printf("%s,%s,%s\n",
+			activity.user.name, activity.user.email, beteiligungStr)
+	}	
 }
 
 func tobias_poll(db *sql.DB, settings Settings) {

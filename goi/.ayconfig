@@ -2,5 +2,19 @@
 	"dsn": "mysql:normsetzung@/normsetzung",
 	"startdate": "2013-07-02",
 	"enddate": "2013-09-30",
-	"activity_badges": ["Fakkultätsrat"]
+	"activity_badges": ["Fakkultätsrat"],
+	"phases": [
+		{
+			"startdate": "2013-07-02",
+			"enddate": "2013-07-30"
+		},
+		{
+			"startdate": "2013-07-31",
+			"enddate": "2013-09-08"
+		},
+		{
+			"startdate": "2013-09-09",
+			"enddate": "2013-09-30"
+		}
+	]
 }

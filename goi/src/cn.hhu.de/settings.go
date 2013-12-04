@@ -5,10 +5,16 @@ import (
 	"io/ioutil"
 )
 
+type Phase struct {
+	StartDate string
+	EndDate string
+}
+
 type Settings struct {
 	Dsn string
 	StartDate string
 	EndDate string
+	Phases []Phase
 }
 
 func readSettings(fn string) Settings {
