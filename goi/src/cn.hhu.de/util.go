@@ -2,8 +2,9 @@ package main
 
 import (
 	"database/sql"
-	"strings"
+	"net/url"
 	"regexp"
+	"strings"
 )
 
 func assertMsg(b bool, msg string) {
@@ -51,4 +52,15 @@ func db2int(v sql.NullInt64) int {
 	 } else {
 	 	return 0
 	 }
+}
+
+func parse_urlencoded(raw string) map[string]string {
+	fakeUrl := "http://localhost?" + raw
+	url, err := url.Parse(fakeUrl)
+	assertMust(err, "Invalid URL")
+	res := make(map[string]string, 0)
+	for key, values := range url.Query() {
+		res[key] = values[0]
+	}
+	return res
 }

@@ -172,7 +172,12 @@ type UserActivity struct {
 	VoteCount int
 	RequestCount int
 }
+
 func getUserActivity(db *sql.DB) (<-chan *UserActivity) {
+	return getUserActivityByDate(db, "2000-01-01", "9999-01-01")
+}
+
+func getUserActivityByDate(db *sql.DB, startDate string, endDate string) (<-chan *UserActivity) {
 	c := make(chan *UserActivity, BUFSIZE)
 
 	go func() {
@@ -186,7 +191,8 @@ func getUserActivity(db *sql.DB) (<-chan *UserActivity) {
 			from user, comment
 			where
 				comment.delete_time IS NULL and
-				user.id = comment.creator_id
+				user.id = comment.creator_id and
+				comment.create_time >= ? and comment.create_time <= ?
 			group by user.id
 		) CommentCount
 		ON user.id = CommentCount.user_id
@@ -197,7 +203,8 @@ func getUserActivity(db *sql.DB) (<-chan *UserActivity) {
 			where
 				delegateable.delete_time IS NULL and
 				user.id = delegateable.creator_id and
-				delegateable.type = "proposal"
+				delegateable.type = "proposal" and
+				delegateable.create_time > ? and delegateable.create_time < ?
 			group by user.id
 		) ProposalCount
 		ON user.id = ProposalCount.user_id
@@ -206,20 +213,27 @@ func getUserActivity(db *sql.DB) (<-chan *UserActivity) {
 			select user.id as user_id, count(vote.id) as vote_count
 			from user, vote
 			where
-				user.id = vote.user_id
+				user.id = vote.user_id and
+				vote.create_time > ? and vote.create_time < ?
 			group by user.id
 		) VoteCount
 		ON user.id = VoteCount.user_id
 
 		LEFT OUTER JOIN (
 			select user.id as user_id, count(analysis_request_users.user_id) as request_count
-			from user, analysis_request_users
+			from user, analysis_request_users, requestlog
 			where
-				user.id = analysis_request_users.user_id
+				user.id = analysis_request_users.user_id and
+				analysis_request_users.request_id = requestlog.id and
+				requestlog.access_time > ? and requestlog.access_time < ?
 			group by user.id
 		) RequestCount
 		ON user.id = RequestCount.user_id
-		`)
+		`,
+			startDate, endDate,
+			startDate, endDate,
+			startDate, endDate,
+			startDate, endDate)
 		if err != nil {
 			panic(err.Error())
 		}
