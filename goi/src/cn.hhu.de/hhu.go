@@ -43,17 +43,32 @@ func tranow_classifyUsers(db *sql.DB, settings Settings, badge string) {
 	}
 }
 
-func tobias_activityPhases(db *sql.DB, settings Settings) {
-	for i, phase := range settings.Phases {
-		fmt.Printf("Phase %d\n", i+1)
-		for activity := range getUserActivityByDate(db, phase.StartDate, phase.EndDate) {
-
-			beteiligungStr := classifyUser(activity)
-			fmt.Printf("%s,%s,%s\n",
-				activity.user.name, activity.user.email, beteiligungStr)
-		}
-		fmt.Println()
+func tobias_activityPhases(db *sql.DB, settings Settings, interestingBadgesRaw []string) {
+	interestingBadges := make([][]string, 0)
+	for _, ibr := range interestingBadgesRaw {
+		interestingBadges = append(interestingBadges, strings.Split(ibr, ","))
 	}
+	out := csv.NewWriter(os.Stdout)
+	for _, phase := range settings.Phases {
+		out.Write([]string{phase.Name})
+		headers := []string{"user", "email", "beteiligung"}
+		for _, ibr := range interestingBadgesRaw {
+			headers = append(headers, ibr)
+		}
+		out.Write(headers)
+
+		for activity := range getUserActivityByDate(db, phase.StartDate, phase.EndDate) {
+			beteiligungStr := classifyUser(activity)
+			badges := getUserBadges(db, activity.user.id)
+
+			row := []string{activity.user.name, activity.user.email, beteiligungStr}
+			for _, ib := range interestingBadges {
+				row = append(row, first_present(badges, ib))
+			}
+			out.Write(row)
+		}
+	}
+	out.Flush()
 }
 
 type TobiasPoll struct {

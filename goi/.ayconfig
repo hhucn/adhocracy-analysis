@@ -6,15 +6,18 @@
 	"phases": [
 		{
 			"startdate": "2013-07-02",
-			"enddate": "2013-07-29"
+			"enddate": "2013-07-29",
+			"name": "Phase 1"
 		},
 		{
 			"startdate": "2013-07-30",
-			"enddate": "2013-09-07"
+			"enddate": "2013-09-07",
+			"name": "Phase 2"
 		},
 		{
 			"startdate": "2013-09-08",
-			"enddate": "2013-10-01"
+			"enddate": "2013-10-01",
+			"name": "Phase 4"
 		}
 	]
 }

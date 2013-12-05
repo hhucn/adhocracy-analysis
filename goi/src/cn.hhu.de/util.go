@@ -64,3 +64,13 @@ func parse_urlencoded(raw string) map[string]string {
 	}
 	return res
 }
+
+func first_present(search_in map[string]bool, needles []string) string {
+	for _, needle := range needles {
+		_, exists := search_in[needle]
+		if exists {
+			return needle
+		}
+	}
+	return ""
+}

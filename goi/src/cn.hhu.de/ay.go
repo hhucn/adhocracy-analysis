@@ -117,6 +117,8 @@ func fixIPs(db *sql.DB, settings Settings, filename string) {
 	// TODO
 }
 
+
+
  
 // Map from user name to user id
 func getUserIdMap(db *sql.DB) map[string]int { 
@@ -267,6 +269,33 @@ func getUserActivityByDate(db *sql.DB, startDate string, endDate string) (<-chan
 	return c
 }
 
+// A set of badges
+type UserBadges map[string]bool
+
+
+func getUserBadges(db *sql.DB, user_id int) UserBadges {
+	rows, err := db.Query(`
+		select badge.title
+		from user_badges, badge
+		where
+			user_badges.user_id = ? and
+			user_badges.badge_id = badge.id
+		`, user_id)
+	if err != nil {
+		panic(err.Error())
+	}
+	res := make(UserBadges)
+	for rows.Next() {
+		var title string
+		err = rows.Scan(&title)
+		if err != nil {
+			panic(err.Error())
+		}
+		res[title] = true
+	}
+	return res
+}
+
 // Returns a set of users with the given badge
 func getUserIdsWithBadge(db *sql.DB, badge string) map[int]int {
 	rows, err := db.Query(`
@@ -385,7 +414,7 @@ func main() {
 	case "tobias_poll":
 		tobias_poll(db, settings)
 	case "tobias_activityPhases":
-		tobias_activityPhases(db, settings)
+		tobias_activityPhases(db, settings, positional_args[1:])
 	case "listUserIds":
 		for name, id := range getUserIdMap(db) {
 			fmt.Printf("%s : %d\n", name, id)

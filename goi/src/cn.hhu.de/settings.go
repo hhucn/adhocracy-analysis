@@ -8,6 +8,7 @@ import (
 type Phase struct {
 	StartDate string
 	EndDate string
+	Name string
 }
 
 type Settings struct {
