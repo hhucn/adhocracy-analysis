@@ -180,8 +180,8 @@ func tobias_poll(db *sql.DB, settings Settings) {
 
 	for _, p := range polls {
 		row := []string{strconv.FormatInt(p.Time, 10), p.UserId, p.QType, p.Result}
-		for _, v := range p.Answers {
-			row = append(row, v)
+		for _, k := range allKeys {
+			row = append(row, p.Answers[k])
 		}
 		writer.Write(row)
 	}
