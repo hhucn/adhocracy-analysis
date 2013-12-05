@@ -51,6 +51,7 @@ func tobias_activityPhases(db *sql.DB, settings Settings, interestingBadgesRaw [
 	out := csv.NewWriter(os.Stdout)
 	for _, phase := range settings.Phases {
 		out.Write([]string{phase.Name})
+		out.Write([]string{})
 		headers := []string{"user", "email", "beteiligung"}
 		for _, ibr := range interestingBadgesRaw {
 			headers = append(headers, ibr)
@@ -67,6 +68,7 @@ func tobias_activityPhases(db *sql.DB, settings Settings, interestingBadgesRaw [
 			}
 			out.Write(row)
 		}
+		out.Write([]string{})
 	}
 	out.Flush()
 }
