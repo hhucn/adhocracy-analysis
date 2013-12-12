@@ -9,9 +9,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"./counter"
 )
 
 // HHU-specific analysis
+
+var INTENSITIES []string = []string{"intensiv", "gering", "besucht", "keine"}
 
 func classifyUser(activity *UserActivity) string {
 	switch {
@@ -72,6 +75,53 @@ func tobias_activityPhases(db *sql.DB, settings Settings, interestingBadgesRaw [
 	}
 	out.Flush()
 }
+
+
+func _participationStats_badges_print_stats(label string, stats *counter.Counter, valOrder []string) {
+	count := stats.Sum()
+	fmt.Printf("%s(%d): ", label, count)
+	first := true
+	for _, k := range valOrder {
+		if (first) {
+			first = false
+		} else {
+			fmt.Printf(", ")
+		}
+		fmt.Printf("%s: %d (%d %%)", k, stats.Get(k), (100.0 * stats.Get(k) / count))
+	}
+	fmt.Println()
+}
+
+
+func participationStats_badges(db *sql.DB, settings Settings, interestingBadges []string) {
+	allActivity := make([]*UserActivity, 0)
+	for ua := range getUserActivity(db) {
+		allActivity = append(allActivity, ua)
+	}
+
+	badge_stats := make(map[string]*counter.Counter)
+	for _, ib := range interestingBadges {
+		badge_stats[ib] = counter.NewCounter()
+	}
+	stats := counter.NewCounter()
+	for _, activity := range allActivity {
+		beteiligungStr := classifyUser(activity)
+		stats.Count(beteiligungStr)
+
+		badges := getUserBadges(db, activity.user.id)
+		for badge, _ := range badges {
+			if is_in(badge, interestingBadges) {
+				badge_stats[badge].Count(beteiligungStr)
+			}
+		}
+	}
+
+	_participationStats_badges_print_stats("Alle", stats, INTENSITIES)
+	for _, b := range interestingBadges {
+		_participationStats_badges_print_stats(b, badge_stats[b], INTENSITIES)
+	}
+}
+
 
 type TobiasPoll struct {
 	Time int64

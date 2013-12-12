@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"time"
 	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/mattn/go-sqlite3"
+//	_ "github.com/mattn/go-sqlite3"
 )
 
 
@@ -415,6 +415,8 @@ func main() {
 		tobias_poll(db, settings)
 	case "tobias_activityPhases":
 		tobias_activityPhases(db, settings, positional_args[1:])
+	case "participationStats_badges":
+		participationStats_badges(db, settings, positional_args[1:])
 	case "listUserIds":
 		for name, id := range getUserIdMap(db) {
 			fmt.Printf("%s : %d\n", name, id)

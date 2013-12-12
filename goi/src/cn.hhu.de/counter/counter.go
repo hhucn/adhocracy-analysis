@@ -44,3 +44,27 @@ func (counter Counter) MostCommon() CounterItemList {
     sort.Sort(res)
     return res
 }
+
+func (counter Counter) Sum() int {
+	res := 0
+	for _, v := range counter.m {
+		res += v
+	}
+	return res
+}
+
+func (counter Counter) Get(key string) int {
+	val, exists := counter.m[key]
+	if ! exists {
+		panic("Expected key " + key + " to be there")
+	}
+	return val
+}
+
+func (counter Counter) Keys() []string {
+	res := make([]string, 0)
+	for k, _ := range counter.m {
+		res = append(res, k)
+	}
+	return res
+}

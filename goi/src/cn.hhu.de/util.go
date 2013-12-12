@@ -74,3 +74,20 @@ func first_present(search_in map[string]bool, needles []string) string {
 	}
 	return ""
 }
+
+func is_in(needle string, haystack []string) bool {
+	for _, el := range haystack {
+		if needle == el {
+			return true
+		}
+	}
+	return false
+}
+
+func map_keys(m map[string]interface{}) []string {
+	res := make([]string, len(m))
+	for k, _ := range m {
+		res = append(res, k)
+	}
+	return res
+}
