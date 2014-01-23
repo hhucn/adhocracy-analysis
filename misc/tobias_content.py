@@ -2,55 +2,111 @@
 
 from __future__ import unicode_literals
 
+
 import argparse
-import csv
+import collections
 import io
 import json
 import sys
 
-
-class SameWidthWriter(object):
-    def __init__(self, real_writer):
-        self.real_writer = real_writer
-        self.rows = []
-
-    def __call__(self, row):
-        assert isinstance(row, list)
-        self.rows.append(row)
-
-    def finalize(self):
-        width = max(len(r) for r in self.rows)
-        self.real_writer.writerows(self.rows)
+import xlsxwriter
 
 
-def print_comment(comment, writefunc, indent=2):
-    row = [comment['creator']] + [''] * indent + [comment['text']]
-    writefunc(row)
-    for c in comment['comments'].values():
-        print_comment(c, writefunc, indent + 1)
+headers = [
+    'Instanz',
+    'Name Vorschlag',
+    'Benutzername',
+    'Statusgruppe',
+    'Datum',
+    'Uhrzeit',
+    'pro',
+    'contra',
+    'Text Vorschlag',
+    'Laufende Nummer',
+]
+
+Comment = collections.namedtuple('Comment', [
+    'instance', 'proposal_title', 'proposal_text',
+    'user', 'timestamp', 'pro',
+    'contra', 'text', 'index', 'depth'])
+
+
+def comment_to_row(c, data):
+    return [
+        c.instance, c.proposal_title, c.user,
+        'TODO: Statusgruppe', 'TODO: DATUM', 'TODO: Uhrzeit',
+        c.pro, c.contra, c.text, c.index]
+
+
+def render_text(t):
+    return t.replace('\r', '')
+
+
+def walk_comments(item, depth=1):
+    sub_comments = item['comments'].values()
+    # TODO sort
+    for idx, c in enumerate(sub_comments):
+        yield (c, idx, depth)
+        assert c['adhocracy_type'] == 'comment'
+        for sub in walk_comments(c, depth + 1):
+            yield sub
+
+
+def get_comment_data(data):
+    for i in data['instance'].values():
+        instance_title = i['label']
+        for p in i['proposals'].values():
+            proposal_title = p['title']
+            proposal_text = render_text(p['description'])
+
+            # Yield the proposal itself
+            assert p['adhocracy_type'] == 'proposal'
+            yield Comment(
+                instance_title, proposal_title, proposal_text,
+                p['creator'], p['create_time'],
+                p['rate_pro'], p['rate_contra'], proposal_text,
+                0, 0)
+
+            for c, index, depth in walk_comments(p):
+                assert c['adhocracy_type'] == 'comment'
+                yield Comment(
+                    instance_title, proposal_title, proposal_text,
+                    c['creator'], c['create_time'],
+                    c['rate_pro'], c['rate_contra'], render_text(c['text']),
+                    index, depth)
 
 
 def main():
     parser = argparse.ArgumentParser(description='Output CSV of all content')
-    parser.add_argument('filename', metavar='FILE', help='input filename (JSON)')
+    parser.add_argument('input', metavar='FILE', help='input filename (JSON)')
+    parser.add_argument('output', metavar='FILE', help='output filename (xlsx)')
 
     args = parser.parse_args()
 
-    with io.open(args.filename, 'r', encoding='utf-8') as inf:
+    workbook = xlsxwriter.Workbook(args.output)
+    worksheet = workbook.add_worksheet()
+    bold = workbook.add_format({'bold': 1})
+
+    with io.open(args.input, 'r', encoding='utf-8') as inf:
         d = json.load(inf)
+    cd = list(get_comment_data(d))
 
-    writer = SameWidthWriter(csv.writer(sys.stdout))
-    instances = d['instance']
-    for i in instances.values():
-        writer(['(Instanz)', i['label']])
-        for p in i['proposals'].values():
-            row = [p['creator'], '', p['title'], p['description']]
-            writer(row)
-            for c in p['comments'].values():
-                print_comment(c, writer)
+    max_depth = max(c.depth for c in cd)
+    for i, h in enumerate(headers):
+        worksheet.write(0, i, h, bold)
+        worksheet.set_column(i, i, max(10, 2 * len(h)))
 
-    writer.finalize()
-
+    for rowidx, c in enumerate(cd):
+        row = comment_to_row(c, d)
+        for colidx, cell in enumerate(row):
+            worksheet.write(rowidx + 1, colidx, cell)
+    workbook.close()
 
 if __name__ == '__main__':
     main()
+
+
+# TODO regard depth
+# TODO sort
+# TODO render date / time
+# TODO Statusgruppe
