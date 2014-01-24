@@ -35,8 +35,10 @@ Comment = collections.namedtuple('Comment', [
 
 def get_group(user, data):
     user_data = data['user'][user]
-    print(user_data)
-    return 'TODO: Statusgruppe'
+    for b in ('Professor/in', 'Mittelbau', 'Doktorand/in'):
+        if b in user_data['badges']:
+            return b
+    return 'Sonstige'
 
 
 def comment_to_row(c, data):
@@ -135,7 +137,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-# TODO render date / time
-# TODO Statusgruppe
