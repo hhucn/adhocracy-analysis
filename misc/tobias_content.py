@@ -5,11 +5,13 @@ from __future__ import unicode_literals
 
 import argparse
 import collections
+import datetime
 import io
 import json
 import sys
 
 import xlsxwriter
+import pytz
 
 
 headers = [
@@ -31,11 +33,30 @@ Comment = collections.namedtuple('Comment', [
     'contra', 'text', 'index', 'depth'])
 
 
+def get_group(user, data):
+    user_data = data['user'][user]
+    print(user_data)
+    return 'TODO: Statusgruppe'
+
+
 def comment_to_row(c, data):
-    return [
-        c.instance, c.proposal_title, c.user,
-        'TODO: Statusgruppe', 'TODO: DATUM', 'TODO: Uhrzeit',
-        c.pro, c.contra, c.text, c.index]
+    dt = datetime.datetime.strptime(c.timestamp, '%Y-%m-%dT%H:%M:%S')
+    utc = pytz.timezone('UTC')
+    dt = dt.replace(tzinfo=utc)
+
+    local_tz = pytz.timezone('Europe/Berlin')
+    local_dt = dt.astimezone(local_tz)
+
+    date = local_dt.date()
+    time = local_dt.time()
+
+    group = get_group(c.user, data)
+
+    return (
+        [c.instance, c.proposal_title, c.user,
+            group, date, time,
+            c.pro, c.contra, c.proposal_text, c.index] +
+        ([''] * c.depth) + [c.text])
 
 
 def render_text(t):
@@ -44,9 +65,9 @@ def render_text(t):
 
 def walk_comments(item, depth=1):
     sub_comments = item['comments'].values()
-    # TODO sort
-    for idx, c in enumerate(sub_comments):
-        yield (c, idx, depth)
+    sub_comments.sort(key=lambda c: c['create_time'])
+    for c in sub_comments:
+        yield (c, depth)
         assert c['adhocracy_type'] == 'comment'
         for sub in walk_comments(c, depth + 1):
             yield sub
@@ -67,13 +88,14 @@ def get_comment_data(data):
                 p['rate_pro'], p['rate_contra'], proposal_text,
                 0, 0)
 
-            for c, index, depth in walk_comments(p):
+            for cidx, ctpl in enumerate(walk_comments(p)):
+                c, depth = ctpl
                 assert c['adhocracy_type'] == 'comment'
                 yield Comment(
                     instance_title, proposal_title, proposal_text,
                     c['creator'], c['create_time'],
                     c['rate_pro'], c['rate_contra'], render_text(c['text']),
-                    index, depth)
+                    cidx + 1, depth)
 
 
 def main():
@@ -86,27 +108,34 @@ def main():
     workbook = xlsxwriter.Workbook(args.output)
     worksheet = workbook.add_worksheet()
     bold = workbook.add_format({'bold': 1})
+    date_format = workbook.add_format({'num_format': 'yyyy-mm-dd'})
+    time_format = workbook.add_format({'num_format': 'HH:MM:SS'})
 
     with io.open(args.input, 'r', encoding='utf-8') as inf:
         d = json.load(inf)
     cd = list(get_comment_data(d))
 
-    max_depth = max(c.depth for c in cd)
     for i, h in enumerate(headers):
         worksheet.write(0, i, h, bold)
         worksheet.set_column(i, i, max(10, 2 * len(h)))
+    max_depth = max(c.depth for c in cd)
+    for i in range(max_depth):
+        worksheet.write(0, len(headers) + i, 'Kommentar Ebene %d' % i, bold)
 
     for rowidx, c in enumerate(cd):
         row = comment_to_row(c, d)
         for colidx, cell in enumerate(row):
-            worksheet.write(rowidx + 1, colidx, cell)
+            if isinstance(cell, datetime.date):
+                worksheet.write_datetime(rowidx + 1, colidx, cell, date_format)
+            elif isinstance(cell, datetime.time):
+                worksheet.write_datetime(rowidx + 1, colidx, cell, time_format)
+            else:
+                worksheet.write(rowidx + 1, colidx, cell)
     workbook.close()
 
 if __name__ == '__main__':
     main()
 
 
-# TODO regard depth
-# TODO sort
 # TODO render date / time
 # TODO Statusgruppe
