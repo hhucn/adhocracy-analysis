@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"database/sql"
 	"encoding/csv"
 	"fmt"
@@ -173,10 +174,10 @@ func tobias_poll_getdata(db *sql.DB, settings Settings) []TobiasPoll {
 			qtype = "extended"
 		case strings.HasPrefix(path, "/static/nb"):
 			longNames := map[string]string{
-			    "z": "satisfied",
-			    "w": "waage",
-			    "k": "neutral",
-			    "u": "dissatisfied",
+				"z": "satisfied",
+				"w": "waage",
+				"k": "neutral",
+				"u": "dissatisfied",
 			}
 
 			re := regexp.MustCompile("u=([0-9]+)$")
@@ -205,6 +206,35 @@ func tobias_poll_getdata(db *sql.DB, settings Settings) []TobiasPoll {
 	return res
 }
 
+type tobias_csvWriter struct {
+	w *bufio.Writer
+}
+
+func tobias_csvWriter_new(w *bufio.Writer) *tobias_csvWriter {
+	return &tobias_csvWriter{w}
+}
+
+func (tw *tobias_csvWriter) Write(row []string) (err error) {
+	for i, cell := range row {
+		if i > 0 {
+			if _, err = tw.w.WriteString(","); err != nil {
+				return
+			}
+		}
+
+		encoded := "\"" + strings.Replace(cell, "\"", "\"\"", -1) + "\""
+		if _, err = tw.w.WriteString(encoded); err != nil {
+			return
+		}
+	}
+	tw.w.WriteString("\n")
+	return
+}
+
+func (tw *tobias_csvWriter) Flush() (err error) {
+	return tw.w.Flush()
+}
+
 func tobias_poll(db *sql.DB, settings Settings) {
 	polls := tobias_poll_getdata(db, settings)
 	allKeys_map := make(map[string]bool)
@@ -221,7 +251,8 @@ func tobias_poll(db *sql.DB, settings Settings) {
 	sort.Strings(allKeys)
 
 	// Header row
-	writer := csv.NewWriter(os.Stdout)
+	bwriter := bufio.NewWriter(os.Stdout)
+	writer := tobias_csvWriter_new(bwriter)
 	headers := []string{"timestamp", "user ID", "questionnaire type", "result"}
 	for _, k := range allKeys {
 		headers = append(headers, k)
