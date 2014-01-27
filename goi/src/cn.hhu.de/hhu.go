@@ -262,7 +262,9 @@ func tobias_poll(db *sql.DB, settings Settings) {
 	for _, p := range polls {
 		row := []string{strconv.FormatInt(p.Time, 10), p.UserId, p.QType, p.Result}
 		for _, k := range allKeys {
-			row = append(row, p.Answers[k])
+			a := strings.Replace(p.Answers[k], "\r\n", "\n", -1)
+			a = strings.Replace(a, "\n", "<br>", -1)
+			row = append(row, a)
 		}
 		writer.Write(row)
 	}
