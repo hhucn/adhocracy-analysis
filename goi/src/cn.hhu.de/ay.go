@@ -146,6 +146,7 @@ func getUserIdMap(db *sql.DB) map[string]int {
 type User struct {
 	id int
 	name string
+	login string
 	email string
 }
 
@@ -184,7 +185,7 @@ func getUserActivityByDate(db *sql.DB, startDate string, endDate string) (<-chan
 
 	go func() {
 		rows, err := db.Query(`
-		SELECT user.id, user.display_name, user.email,
+		SELECT user.id, user.display_name, user.user_name, user.email,
 			CommentCount.comment_count, ProposalCount.proposal_count, VoteCount.vote_count, RequestCount.request_count
 		FROM user
 
@@ -251,7 +252,7 @@ func getUserActivityByDate(db *sql.DB, startDate string, endDate string) (<-chan
 			)
 
 			err = rows.Scan(
-				&u.id, &u.name, &u.email,
+				&u.id, &u.name, &u.login, &u.email,
 				&_CommentCount, &_ProposalCount, &_VoteCount, &_RequestCount)
 			if err != nil {
 				panic(err.Error())

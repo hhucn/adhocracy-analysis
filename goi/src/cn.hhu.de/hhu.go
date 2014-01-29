@@ -66,7 +66,7 @@ func tobias_activityPhases(db *sql.DB, settings Settings, interestingBadgesRaw [
 			beteiligungStr := classifyUser(activity)
 			badges := getUserBadges(db, activity.user.id)
 
-			row := []string{activity.user.name, activity.user.email, beteiligungStr}
+			row := []string{activity.user.login, activity.user.email, beteiligungStr}
 			for _, ib := range interestingBadges {
 				row = append(row, first_present(badges, ib))
 			}
