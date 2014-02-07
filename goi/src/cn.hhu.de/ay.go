@@ -148,6 +148,7 @@ type User struct {
 	name string
 	login string
 	email string
+	gender string
 }
 
 func getAllUsers(db *sql.DB) []User {
@@ -185,7 +186,7 @@ func getUserActivityByDate(db *sql.DB, startDate string, endDate string) (<-chan
 
 	go func() {
 		rows, err := db.Query(`
-		SELECT user.id, user.display_name, user.user_name, user.email,
+		SELECT user.id, user.display_name, user.user_name, user.email, user.gender,
 			CommentCount.comment_count, ProposalCount.proposal_count, VoteCount.vote_count, RequestCount.request_count
 		FROM user
 
@@ -252,7 +253,7 @@ func getUserActivityByDate(db *sql.DB, startDate string, endDate string) (<-chan
 			)
 
 			err = rows.Scan(
-				&u.id, &u.name, &u.login, &u.email,
+				&u.id, &u.name, &u.login, &u.email, &u.gender,
 				&_CommentCount, &_ProposalCount, &_VoteCount, &_RequestCount)
 			if err != nil {
 				panic(err.Error())

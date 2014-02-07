@@ -47,6 +47,14 @@ func tranow_classifyUsers(db *sql.DB, settings Settings, badge string) {
 	}
 }
 
+func bool_str(b bool) string {
+	if b {
+		return "ja"
+	} else {
+		return "nein"
+	}
+}
+
 func tobias_activityPhases(db *sql.DB, settings Settings, interestingBadgesRaw []string) {
 	interestingBadges := make([][]string, 0)
 	for _, ibr := range interestingBadgesRaw {
@@ -56,7 +64,8 @@ func tobias_activityPhases(db *sql.DB, settings Settings, interestingBadgesRaw [
 	for _, phase := range settings.Phases {
 		out.Write([]string{phase.Name})
 		out.Write([]string{})
-		headers := []string{"user", "email", "beteiligung"}
+		headers := []string{"user", "gender", "email", "beteiligung",
+							"hat gelesen", "hat abgestimmt", "hat kommentiert", "hat Vorschlag gemacht"}
 		for _, ibr := range interestingBadgesRaw {
 			headers = append(headers, ibr)
 		}
@@ -65,8 +74,9 @@ func tobias_activityPhases(db *sql.DB, settings Settings, interestingBadgesRaw [
 		for activity := range getUserActivityByDate(db, phase.StartDate, phase.EndDate) {
 			beteiligungStr := classifyUser(activity)
 			badges := getUserBadges(db, activity.user.id)
-
-			row := []string{strconv.Itoa(activity.user.id), activity.user.email, beteiligungStr}
+			row := []string{strconv.Itoa(activity.user.id), activity.user.gender, activity.user.email, beteiligungStr,
+				bool_str(activity.RequestCount > 0), bool_str(activity.VoteCount > 0), bool_str(activity.CommentCount > 0), bool_str(activity.ProposalCount > 0),
+			}
 			for _, ib := range interestingBadges {
 				row = append(row, first_present(badges, ib))
 			}
