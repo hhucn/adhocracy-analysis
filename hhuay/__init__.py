@@ -1,20 +1,25 @@
 import argparse
 import collections
+import io
 import json
 import re
 import sys
 import time
 
+import mysql.connector
+from mysql.connector.constants import ClientFlag
+
 from . import sources
+from .util import FileProgress
 
 
-def read_requestlog_all(args):
+def read_requestlog_all(args, **kwargs):
     if args.files:
         for fn in args.files:
             with open(fn, 'rb') as inf:
-                yield from sources.read_requestlog(inf)
+                yield from sources.read_requestlog(inf, **kwargs)
     else:
-        yield from sources.read_requestlog(sys.stdin.buffer)
+        yield from sources.read_requestlog(sys.stdin.buffer, **kwargs)
 
 
 def action_listrequests(args, format='repr'):
@@ -95,6 +100,86 @@ def action_actionstats(args, userdb_filename=None):
     print_cmp('Commented', len(commented))
 
 
+class DBConnection(object):
+    def __enter__(self):
+        flags = [ClientFlag.FOUND_ROWS]
+        self.db = mysql.connector.connect(
+            user='normsetzung', host='localhost', database='normsetzung',
+            client_flags=flags)
+        self.cursor = self.db.cursor()
+        return self
+
+    def execute(self, *args, **kwargs):
+        return self.cursor.execute(*args, **kwargs)
+
+    def commit(self):
+        return self.db.commit()
+
+    def __exit__(self, typ, value, traceback):
+        self.cursor.close()
+        self.db.close()
+
+
+def action_load_requestlog(args, recreate):
+    """ Load requestlog into the database """
+
+    if not args.discardfile:
+        raise ValueError('Must specify a discard file!')
+
+    with io.open(args.discardfile, 'w', encoding='utf-8') as discardf, \
+            DBConnection() as db:
+
+        def discard(line):
+            discardf.write(line)
+
+        if recreate:
+            db.execute('''DROP TABLE IF EXISTS requestlog2;''')
+            db.execute('''CREATE TABLE requestlog2 (
+                id int PRIMARY KEY auto_increment,
+                access_time datetime,
+                ip_address varchar(255),
+                request_url text,
+                cookies text,
+                user_agent text);
+            ''')
+
+        for r in read_requestlog_all(args, discard=discard,
+                                     progressclass=FileProgress):
+            sql = '''INSERT INTO requestlog2
+                SET access_time = FROM_UNIXTIME(%s),
+                    ip_address = %s,
+                    request_url = %s,
+                    cookies = %s,
+                    user_agent = %s;
+            '''
+            db.execute(sql, (r.time, r.ip, r.path, r.cookies, r.user_agent))
+        db.commit()
+
+
+def action_fix_ips(args):
+    """ Correct the IP addresses in the database """
+
+    if not args.discardfile:
+        raise ValueError('Must specify a discard file!')
+
+    with io.open(args.discardfile, 'w', encoding='utf-8') as discardf, \
+            DBConnection() as db:
+        def discard(line):
+            discardf.write(line)
+
+        # TODO requestlog2
+        sql = '''SELECT id, request_url, TO_UNIXTIME(access_time),
+            FROM requestlog
+            ORDER BY access_time;
+        '''
+        result = db.execute(sql)
+        # TODO why can't we simply insert all rows?
+        # TODO retrieve from this, keep a buffer
+
+        for r in read_requestlog_all(args, discard=discard):
+            pass
+
+
 def action_uastats(args):
     """ Output stats about the HTTP user agents in use """
     stats = collections.Counter(
@@ -109,10 +194,12 @@ def main():
     common_options = argparse.ArgumentParser(add_help=False)
     common_options.add_argument('files', nargs='*',
                                 help='Files to read from')
+    common_options.add_argument('--discardfile', dest='discardfile',
+                    metavar='FILE', help='Store unmatching lines here')
 
     subparsers = parser.add_subparsers(
         title='action', help='What to do', dest='action')
-    sp = subparsers.add_parser('listrequests',
+    sp = subparsers.add_parser('file_listrequests',
                                help=action_listrequests.__doc__.strip(),
                                parents=[common_options])
     sp.add_argument('--format',
@@ -121,11 +208,22 @@ def main():
                     help='Output format ("repr", "json", or "benchmark")')
     subparsers.add_parser('uastats', help=action_uastats.__doc__.strip(),
                           parents=[common_options])
-    sp = subparsers.add_parser('actionstats',
+    sp = subparsers.add_parser('file_actionstats',
                                help=action_actionstats.__doc__.strip(),
                                parents=[common_options])
     sp.add_argument('--userdb', dest='action_actionstats_userdb_filename',
                     help='Filename of user database', metavar='FILE')
+
+    sp = subparsers.add_parser('fix_ips',
+                               help=action_fix_ips.__doc__.strip(),
+                               parents=[common_options])
+
+    sp = subparsers.add_parser('load_requestlog',
+                               help=action_load_requestlog.__doc__.strip(),
+                               parents=[common_options])
+    sp.add_argument('--recreate', dest='action_load_requestlog_recreate',
+                    help='Drop and recreate the created requestlog table',
+                    action='store_true')
 
     args = parser.parse_args()
     if not args.action:

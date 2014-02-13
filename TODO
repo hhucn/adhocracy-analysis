@@ -1,8 +1,18 @@
+filter by start / end date
+load into database
+identify sessions
+
+
+insert into MySQL
+
+match MySQL
+	write UPDATE statement
+	check whether matched (if not, discard)
+	add progress bar
+if not, discard them
+
+
 extract sessions
-How can we speed up reading the stats file?
-
-dump out data for Tobias
-
 Read user databases!
 	actions by time
 	user stats by user attributes (faculty / status)
@@ -20,3 +30,42 @@ number of actions per user
 filter out our devs
 Email bounce / Out of office stats?
 Show status (if possible)
+
+
+
+try saving requests as protobuf
+write load_requests to load data from apache log
+
+does setting a password correlate with user activity, user platform, status group, faculty?
+performance correlate
+
+Activity
+	-> Diversity (where)
+	Reading
+		Number of threads
+		Length
+	Writing
+		Quality
+		Length
+	Voting
+		Do they change how they vote
+			-> Can we detect why (with a diff)
+			How often
+request paths, how do people navigate
+
+activity by date
+activity by time
+
+how long on site?
+	break down by
+		frontsite
+		overview
+		comments
+		writing
+		other
+		(get all of that by user, and by average of average over user)
+parse performance data
+details
+	.. by faculty
+	.. by user activity
+

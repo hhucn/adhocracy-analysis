@@ -8,6 +8,7 @@ import re
 import time
 
 from . import util
+from .util import NoProgress
 
 Request = collections.namedtuple(
     'Request',
@@ -19,6 +20,10 @@ User = collections.namedtuple(
     'User',
     ('name', 'email', 'badges')
 )
+
+
+def _default_discard(line):
+    raise ValueError('Line %r does not match pattern' % (line))
 
 
 def read_userdb(fn):
@@ -34,7 +39,7 @@ def read_userdb(fn):
     }
 
 
-def read_requestlog(stream):
+def read_requestlog(stream, *args, **kwargs):
     firstbytes = stream.read(40960)
     stream.seek(0)
     if firstbytes[:5] == b'\xfd\x37\x7a\x58\x5a':
@@ -48,7 +53,7 @@ def read_requestlog(stream):
         except KeyError:
             pass
         else:
-            yield from _read_apache_log(stream, format)
+            yield from _read_apache_log(stream, format, *args, **kwargs)
             return
 
     raise NotImplementedError('Unrecognized input format')
@@ -83,7 +88,10 @@ def _detect_apache_format(firstbytes):
     raise KeyError('Does not match any known apache format')
 
 
-def _read_apache_log(stream, format):
+def _read_apache_log(stream, format, discard=_default_discard,
+                     progressclass=NoProgress):
+    progress = progressclass(stream)
+
     month_names = dict((v, k) for k, v in enumerate(calendar.month_abbr))
 
     def calc_timezone_offset(tzstr):
@@ -112,8 +120,8 @@ def _read_apache_log(stream, format):
     for line in ts:
         m = rex.match(line)
         if not m:
-            raise ValueError('Line %r does not match pattern %r' %
-                             (line, format))
+            discard(line)
+            continue
 
         reqline = m.group('reqline')
         if reqline == '-':
@@ -139,7 +147,6 @@ def _read_apache_log(stream, format):
         ))
         tzstr = time_m.group(7)
         rtime += tz_cache[tzstr]
-        rtime = 42
 
         user_m = user_rex.match(m.group('cookie'))
         if user_m:
@@ -149,6 +156,7 @@ def _read_apache_log(stream, format):
 
         req = Request(rtime, m.group('ip'), line_m.group('requestmethod'),
                       line_m.group('path'),
-                      'TODO: COOKIES', 'TODO: referer', m.group('user_agent'),
+                      m.group('cookie'), '(no referer)', m.group('user_agent'),
                       username)
+        progress.update()
         yield req
