@@ -1,16 +1,10 @@
-filter by start / end date
-load into database
-identify sessions
+dischner
 
-
-insert into MySQL
-
-match MySQL
-	write UPDATE statement
-	check whether matched (if not, discard)
-	add progress bar
-if not, discard them
-
+action_listuas
+	from database!
+action_cleanup
+	filter by start / end date
+	filter by user agent
 
 extract sessions
 Read user databases!

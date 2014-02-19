@@ -19,6 +19,9 @@ class NoProgress(object):
     def update(self):
         pass
 
+    def finish(self):
+        pass
+
 
 class FileProgress(object):
     def __init__(self, stream):
@@ -32,3 +35,38 @@ class FileProgress(object):
     def update(self):
         pos = self.stream.tell()
         self.bar.goto(pos)
+
+    def finish(self):
+        self.bar.finish()
+
+
+class DBConnection(object):
+    def __init__(self, config):
+        self.config = config
+
+    def __enter__(self):
+        flags = [ClientFlag.FOUND_ROWS]
+        try:
+            host = self.config.get('db_host')
+            user = self.config['db_user']
+            password = self.config.get('db_password')
+            database = self.config.get('db_database')
+        except KeyError as ke:
+            print('Missing key %s in configuration' % ke.args[0])
+
+        self.db = mysql.connector.connect(
+            user=user, host=host, password=password, database=database,
+            client_flags=flags)
+        self.cursor = self.db.cursor()
+        return self
+
+    def execute(self, *args, **kwargs):
+        return self.cursor.execute(*args, **kwargs)
+
+    def commit(self):
+        return self.db.commit()
+
+    def __exit__(self, typ, value, traceback):
+        self.cursor.close()
+        self.db.close()
+

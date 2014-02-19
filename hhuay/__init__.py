@@ -10,7 +10,7 @@ import mysql.connector
 from mysql.connector.constants import ClientFlag
 
 from . import sources
-from .util import FileProgress
+from .util import FileProgress, DBConnection
 
 
 def read_requestlog_all(args, **kwargs):
@@ -100,26 +100,6 @@ def action_actionstats(args, userdb_filename=None):
     print_cmp('Commented', len(commented))
 
 
-class DBConnection(object):
-    def __enter__(self):
-        flags = [ClientFlag.FOUND_ROWS]
-        self.db = mysql.connector.connect(
-            user='normsetzung', host='localhost', database='normsetzung',
-            client_flags=flags)
-        self.cursor = self.db.cursor()
-        return self
-
-    def execute(self, *args, **kwargs):
-        return self.cursor.execute(*args, **kwargs)
-
-    def commit(self):
-        return self.db.commit()
-
-    def __exit__(self, typ, value, traceback):
-        self.cursor.close()
-        self.db.close()
-
-
 def action_load_requestlog(args, recreate):
     """ Load requestlog into the database """
 
@@ -140,7 +120,8 @@ def action_load_requestlog(args, recreate):
                 ip_address varchar(255),
                 request_url text,
                 cookies text,
-                user_agent text);
+                user_agent text,
+                deleted boolean);
             ''')
 
         for r in read_requestlog_all(args, discard=discard,
@@ -188,14 +169,21 @@ def action_uastats(args):
     print('%10d %s' % (count, ua) for ua, count in stats.most_common())
 
 
+#def action_nametable_dischner(args):
+
+
 def main():
     parser = argparse.ArgumentParser(description='Analyze adhocracy logs')
 
     common_options = argparse.ArgumentParser(add_help=False)
     common_options.add_argument('files', nargs='*',
                                 help='Files to read from')
-    common_options.add_argument('--discardfile', dest='discardfile',
-                    metavar='FILE', help='Store unmatching lines here')
+    common_options.add_argument(
+        '--discardfile', dest='discardfile',
+        metavar='FILE', help='Store unmatching lines here')
+    common_options.add_argument(
+        '--config', dest='configfile',
+        metavar='FILE', help='Configuration file')
 
     subparsers = parser.add_subparsers(
         title='action', help='What to do', dest='action')
@@ -224,6 +212,7 @@ def main():
     sp.add_argument('--recreate', dest='action_load_requestlog_recreate',
                     help='Drop and recreate the created requestlog table',
                     action='store_true')
+
 
     args = parser.parse_args()
     if not args.action:

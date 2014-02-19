@@ -160,3 +160,5 @@ def _read_apache_log(stream, format, discard=_default_discard,
                       username)
         progress.update()
         yield req
+
+    progress.finish()
