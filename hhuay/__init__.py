@@ -10,7 +10,7 @@ import mysql.connector
 from mysql.connector.constants import ClientFlag
 
 from . import sources
-from .util import FileProgress, DBConnection
+from .util import FileProgress, DBConnection, options, Option
 
 
 def read_requestlog_all(args, **kwargs):
@@ -22,9 +22,15 @@ def read_requestlog_all(args, **kwargs):
         yield from sources.read_requestlog(sys.stdin.buffer, **kwargs)
 
 
-def action_listrequests(args, format='repr'):
+@options([
+    Option('--format', dest='format', metavar='FORMAT',
+           help='Output format ("repr", "json", or "benchmark")',
+           default='repr')
+])
+def action_file_listrequests(args):
     """ Output all HTTP requests """
 
+    format = args.format
     if format == 'repr':
         for req in read_requestlog_all(args):
             print(req)
@@ -49,58 +55,14 @@ def action_listrequests(args, format='repr'):
         raise ValueError('Invalid list format %r' % format)
 
 
-def action_actionstats(args, userdb_filename=None):
-    """ Display how many users did some actions, like logging in /
-        posting something"""
-
-    if not userdb_filename:
-        raise ValueError('Extended analysis requires a user database')
-
-    all_users = sources.read_userdb(userdb_filename)
-    total_count = len(all_users)
-
-    def print_cmp(txt, part, whole=total_count):
-        print('%s: %d / %d (%d %%)' %
-              (txt, part, whole, round(part / whole * 100)))
-
-    welcome_rex = re.compile(r'/welcome/(?P<user>[^/]+)/')
-    visited_rex = re.compile(r'^/i/')
-    comment_rex = re.compile(r'^/i/[a-z]+/comment')
-
-    clicked = collections.Counter()
-    visited = collections.Counter()
-    read = collections.Counter()
-    voted = collections.Counter()
-    commented = collections.Counter()
-
-    for req in read_requestlog_all(args):
-        m = welcome_rex.match(req.path)
-        if m:
-            clicked[m.group('user')] += 1
-
-        m = visited_rex.match(req.path)
-        if m and req.username:
-            visited[req.username] += 1
-
-        if '/proposal/' in req.path and req.username:
-            read[req.username] += 1
-
-        if '/poll/' in req.path and req.username:
-            voted[req.username] += 1
-
-        if (req.method == 'POST' and req.username
-                and comment_rex.match(req.path)):
-            commented[req.username] += 1
-
-    clicked_count = len(clicked)
-    print_cmp('Clicked on link', clicked_count)
-    print_cmp('Visited an instance', len(visited))
-    print_cmp('Read a proposal', len(read))
-    print_cmp('Voted', len(voted))
-    print_cmp('Commented', len(commented))
-
-
-def action_load_requestlog(args, recreate):
+@options([
+    Option(
+        '--recreate',
+        dest='action_load_requestlog_recreate',
+        help='Drop and recreate the created requestlog table',
+        action='store_true')
+])
+def action_load_requestlog(args):
     """ Load requestlog into the database """
 
     if not args.discardfile:
@@ -112,7 +74,7 @@ def action_load_requestlog(args, recreate):
         def discard(line):
             discardf.write(line)
 
-        if recreate:
+        if args.recreate:
             db.execute('''DROP TABLE IF EXISTS requestlog2;''')
             db.execute('''CREATE TABLE requestlog2 (
                 id int PRIMARY KEY auto_increment,
@@ -137,40 +99,7 @@ def action_load_requestlog(args, recreate):
         db.commit()
 
 
-def action_fix_ips(args):
-    """ Correct the IP addresses in the database """
-
-    if not args.discardfile:
-        raise ValueError('Must specify a discard file!')
-
-    with io.open(args.discardfile, 'w', encoding='utf-8') as discardf, \
-            DBConnection() as db:
-        def discard(line):
-            discardf.write(line)
-
-        # TODO requestlog2
-        sql = '''SELECT id, request_url, TO_UNIXTIME(access_time),
-            FROM requestlog
-            ORDER BY access_time;
-        '''
-        result = db.execute(sql)
-        # TODO why can't we simply insert all rows?
-        # TODO retrieve from this, keep a buffer
-
-        for r in read_requestlog_all(args, discard=discard):
-            pass
-
-
-def action_uastats(args):
-    """ Output stats about the HTTP user agents in use """
-    stats = collections.Counter(
-        req.user_agent for req in read_requestlog_all(args)
-    )
-    print('%10d %s' % (count, ua) for ua, count in stats.most_common())
-
-
-#def action_nametable_dischner(args):
-
+    
 
 def main():
     parser = argparse.ArgumentParser(description='Analyze adhocracy logs')
@@ -187,31 +116,20 @@ def main():
 
     subparsers = parser.add_subparsers(
         title='action', help='What to do', dest='action')
-    sp = subparsers.add_parser('file_listrequests',
-                               help=action_listrequests.__doc__.strip(),
-                               parents=[common_options])
-    sp.add_argument('--format',
-                    dest='action_listrequests_format',
-                    metavar='FORMAT',
-                    help='Output format ("repr", "json", or "benchmark")')
-    subparsers.add_parser('uastats', help=action_uastats.__doc__.strip(),
-                          parents=[common_options])
-    sp = subparsers.add_parser('file_actionstats',
-                               help=action_actionstats.__doc__.strip(),
-                               parents=[common_options])
-    sp.add_argument('--userdb', dest='action_actionstats_userdb_filename',
-                    help='Filename of user database', metavar='FILE')
+    all_actions = [a for name, a in sorted(globals().items())
+                   if name.startswith('action_')]
+    print(all_actions)
+    for a in all_actions:
+        _, e, action_name = a.__name__.partition('action_')
+        assert e
+        sp = subparsers.add_parser(
+            action_name,
+            help=a.__doc__.strip(), parents=[common_options])
+        sp.add_argument('--userdb', dest='action_actionstats_userdb_filename',
+            help='Filename of user database', metavar='FILE')
+        for o in a.option_list:
+            sp.add_argument(o.name, **o.kwargs)
 
-    sp = subparsers.add_parser('fix_ips',
-                               help=action_fix_ips.__doc__.strip(),
-                               parents=[common_options])
-
-    sp = subparsers.add_parser('load_requestlog',
-                               help=action_load_requestlog.__doc__.strip(),
-                               parents=[common_options])
-    sp.add_argument('--recreate', dest='action_load_requestlog_recreate',
-                    help='Drop and recreate the created requestlog table',
-                    action='store_true')
 
 
     args = parser.parse_args()

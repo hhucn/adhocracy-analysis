@@ -70,3 +70,17 @@ class DBConnection(object):
         self.cursor.close()
         self.db.close()
 
+
+class Option(object):
+    def __init__(self, name, **kwargs):
+        self.name = name
+        assert 'dest' in kwargs
+        self.kwargs = kwargs
+
+
+def options(option_list):
+    def wrapper(func):
+        func.option_list = option_list
+        return func
+    return wrapper
+
