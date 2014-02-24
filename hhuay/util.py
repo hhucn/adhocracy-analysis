@@ -1,5 +1,9 @@
 import collections
+import io
+import json
 
+import mysql.connector
+import mysql.connector.constants
 import progress.bar
 
 
@@ -45,14 +49,14 @@ class DBConnection(object):
         self.config = config
 
     def __enter__(self):
-        flags = [ClientFlag.FOUND_ROWS]
+        flags = [mysql.connector.constants.ClientFlag.FOUND_ROWS]
         try:
             host = self.config.get('db_host')
             user = self.config['db_user']
             password = self.config.get('db_password')
-            database = self.config.get('db_database')
+            database = self.config['db_database']
         except KeyError as ke:
-            print('Missing key %s in configuration' % ke.args[0])
+            raise KeyError('Missing key %s in configuration' % ke.args[0])
 
         self.db = mysql.connector.connect(
             user=user, host=host, password=password, database=database,
@@ -62,6 +66,9 @@ class DBConnection(object):
 
     def execute(self, *args, **kwargs):
         return self.cursor.execute(*args, **kwargs)
+
+    def __iter__(self):
+        return iter(self.cursor)
 
     def commit(self):
         return self.db.commit()
@@ -84,3 +91,7 @@ def options(option_list):
         return func
     return wrapper
 
+
+def read_config(args):
+    with io.open(args.config_filename, 'r', encoding='utf-8') as configf:
+        return json.load(configf)

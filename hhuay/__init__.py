@@ -1,25 +1,22 @@
 import argparse
-import collections
 import io
 import json
-import re
 import sys
 import time
 
-import mysql.connector
-from mysql.connector.constants import ClientFlag
-
 from . import sources
-from .util import FileProgress, DBConnection, options, Option
+from .util import FileProgress, DBConnection, options, Option, read_config
 
 
 def read_requestlog_all(args, **kwargs):
     if args.files:
         for fn in args.files:
             with open(fn, 'rb') as inf:
-                yield from sources.read_requestlog(inf, **kwargs)
+                for r in sources.read_requestlog(inf, **kwargs):
+                    yield r
     else:
-        yield from sources.read_requestlog(sys.stdin.buffer, **kwargs)
+        for r in sources.read_requestlog(sys.stdin.buffer, **kwargs):
+            yield r
 
 
 @options([
@@ -68,8 +65,10 @@ def action_load_requestlog(args):
     if not args.discardfile:
         raise ValueError('Must specify a discard file!')
 
+    config = read_config(args)
+
     with io.open(args.discardfile, 'w', encoding='utf-8') as discardf, \
-            DBConnection() as db:
+            DBConnection(config) as db:
 
         def discard(line):
             discardf.write(line)
@@ -99,7 +98,31 @@ def action_load_requestlog(args):
         db.commit()
 
 
-    
+@options([
+    Option('--xls-file', dest='xls_file', metavar='FILENAME',
+           help='Name of the Excel file to write')
+])
+def action_dischner_nametable(args):
+    """ Create a list of names and user IDs and write is as xls """
+
+    config = read_config(args)
+
+    import xlsxwriter
+
+    with DBConnection(config) as db:
+        workbook = xlsxwriter.Workbook(args.xls_file)
+        worksheet = workbook.add_worksheet()
+        bold = workbook.add_format({'bold': 1})
+        worksheet.write(0, 0, 'ID', bold)
+        worksheet.write(0, 1, 'Name', bold)
+
+        db.execute('SELECT id, display_name FROM user')
+        for row in db:
+            print(repr(row))
+        # TODO select all users
+        # TODO write info
+        workbook.close()
+
 
 def main():
     parser = argparse.ArgumentParser(description='Analyze adhocracy logs')
@@ -111,26 +134,21 @@ def main():
         '--discardfile', dest='discardfile',
         metavar='FILE', help='Store unmatching lines here')
     common_options.add_argument(
-        '--config', dest='configfile',
-        metavar='FILE', help='Configuration file')
+        '--config', dest='config_filename',
+        metavar='FILE', help='Configuration file', default='.config.json')
 
     subparsers = parser.add_subparsers(
         title='action', help='What to do', dest='action')
     all_actions = [a for name, a in sorted(globals().items())
                    if name.startswith('action_')]
-    print(all_actions)
     for a in all_actions:
         _, e, action_name = a.__name__.partition('action_')
         assert e
         sp = subparsers.add_parser(
             action_name,
             help=a.__doc__.strip(), parents=[common_options])
-        sp.add_argument('--userdb', dest='action_actionstats_userdb_filename',
-            help='Filename of user database', metavar='FILE')
         for o in a.option_list:
             sp.add_argument(o.name, **o.kwargs)
-
-
 
     args = parser.parse_args()
     if not args.action:

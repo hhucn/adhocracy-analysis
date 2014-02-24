@@ -1,11 +1,9 @@
 import calendar
 import collections
-import datetime
 import io
 import json
 import lzma
 import re
-import time
 
 from . import util
 from .util import NoProgress
@@ -43,17 +41,19 @@ def read_requestlog(stream, *args, **kwargs):
     firstbytes = stream.read(40960)
     stream.seek(0)
     if firstbytes[:5] == b'\xfd\x37\x7a\x58\x5a':
-        yield from _read_requestlog_lzma(stream)
+        for r in _read_requestlog_lzma(stream):
+            yield r
         return
     elif firstbytes[:1] in b'{[':
-        TODO_JSON
+        raise NotImplementedError('JSON')
     else:
         try:
             format = _detect_apache_format(firstbytes)
         except KeyError:
             pass
         else:
-            yield from _read_apache_log(stream, format, *args, **kwargs)
+            for r in _read_apache_log(stream, format, *args, **kwargs):
+                yield r
             return
 
     raise NotImplementedError('Unrecognized input format')
@@ -61,7 +61,8 @@ def read_requestlog(stream, *args, **kwargs):
 
 def _read_requestlog_lzma(stream):
     with lzma.open(stream) as s:
-        yield from read_requestlog(s)
+        for r in read_requestlog(s):
+            yield r
 
 
 def _detect_apache_format(firstbytes):

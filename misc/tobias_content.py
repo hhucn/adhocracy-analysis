@@ -8,7 +8,6 @@ import collections
 import datetime
 import io
 import json
-import sys
 
 import xlsxwriter
 import pytz
