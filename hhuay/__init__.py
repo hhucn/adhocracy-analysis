@@ -1,3 +1,7 @@
+# encoding: utf-8
+
+from __future__ import unicode_literals
+
 import argparse
 import io
 import json
@@ -99,28 +103,29 @@ def action_load_requestlog(args):
 
 
 @options([
-    Option('--xls-file', dest='xls_file', metavar='FILENAME',
+    Option('--xlsx-file', dest='xlsx_file', metavar='FILENAME',
            help='Name of the Excel file to write')
 ])
 def action_dischner_nametable(args):
-    """ Create a list of names and user IDs and write is as xls """
+    """ Create a list of names and user IDs and write is as xlsx """
 
     config = read_config(args)
+    if not args.xlsx_file:
+        raise ValueError('Must specify an output file!')
 
     import xlsxwriter
 
     with DBConnection(config) as db:
-        workbook = xlsxwriter.Workbook(args.xls_file)
+        workbook = xlsxwriter.Workbook(args.xlsx_file)
         worksheet = workbook.add_worksheet()
         bold = workbook.add_format({'bold': 1})
         worksheet.write(0, 0, 'ID', bold)
         worksheet.write(0, 1, 'Name', bold)
 
         db.execute('SELECT id, display_name FROM user')
-        for row in db:
-            print(repr(row))
-        # TODO select all users
-        # TODO write info
+        for idx, row in enumerate(db):
+            worksheet.write(idx + 1, 0, row[0])
+            worksheet.write(idx + 1, 1, row[1])
         workbook.close()
 
 
@@ -144,9 +149,10 @@ def main():
     for a in all_actions:
         _, e, action_name = a.__name__.partition('action_')
         assert e
+        help = a.__doc__.strip() if a.__doc__ else None
         sp = subparsers.add_parser(
             action_name,
-            help=a.__doc__.strip(), parents=[common_options])
+            help=help, parents=[common_options])
         for o in a.option_list:
             sp.add_argument(o.name, **o.kwargs)
 
