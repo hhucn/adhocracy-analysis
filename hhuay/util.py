@@ -115,7 +115,7 @@ def write_excel(filename, data, headers=None):
                 worksheet.write(rowidx, col, h, bold)
             rowidx += 1
 
-        for rowidx, row in enumerate(data, start=rowidx + 1):
+        for rowidx, row in enumerate(data, start=rowidx):
             for colidx, d in enumerate(row):
                 maxwidths[colidx] = max(maxwidths[colidx], len(compat_str(d)))
                 worksheet.write(rowidx, colidx, d)
@@ -130,6 +130,10 @@ def db_simple_query(db, sql, *args):
 
 
 def gen_random_numbers(minv, maxv, count, seed=1):
+    assert maxv - minv >= count
     rnd = random.Random(seed)
     rnd.seed(seed)
-    return [rnd.randint(minv, maxv) for _ in range(count)]
+    res = set()
+    while len(res) < count:
+        res.add(rnd.randint(minv, maxv))
+    return list(res)
