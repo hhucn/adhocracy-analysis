@@ -9,7 +9,7 @@ import sys
 import time
 
 from . import sources
-from .util import FileProgress, DBConnection, options, Option, read_config, write_excel
+from .util import FileProgress, DBConnection, options, Option, read_config, write_excel, gen_random_numbers
 
 
 def read_requestlog_all(args, **kwargs):
@@ -119,13 +119,14 @@ def action_dischner_nametable(args):
         status_groups = get_status_groups(db)
         db.execute('SELECT id, display_name FROM user')
         rows = list(db)
+        numbers = gen_random_numbers(0, 999999, len(rows))
 
         headers = ('ID', 'Name', 'Statusgruppe')
         tbl = [(
-            99,  # TODO: Random number
+            '%06d' % rnd,
             row[1],
             status_groups[row[0]],
-        ) for idx, row in enumerate(rows)]
+        ) for idx, (row, rnd) in enumerate(zip(rows, numbers))]
         write_excel(args.xlsx_file, tbl, headers=headers)
 
 

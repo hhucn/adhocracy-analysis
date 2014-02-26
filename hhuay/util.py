@@ -2,6 +2,7 @@ import collections
 import contextlib
 import io
 import json
+import random
 
 import mysql.connector
 import mysql.connector.constants
@@ -126,3 +127,9 @@ def write_excel(filename, data, headers=None):
 def db_simple_query(db, sql, *args):
     db.execute(sql, *args)
     return [r[0] for r in db]
+
+
+def gen_random_numbers(minv, maxv, count, seed=1):
+    rnd = random.Random(seed)
+    rnd.seed(seed)
+    return [rnd.randint(minv, maxv) for _ in range(count)]
