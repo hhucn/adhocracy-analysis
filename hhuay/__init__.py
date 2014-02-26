@@ -9,7 +9,7 @@ import sys
 import time
 
 from . import sources
-from .util import FileProgress, DBConnection, options, Option, read_config
+from .util import FileProgress, DBConnection, options, Option, read_config, write_excel
 
 
 def read_requestlog_all(args, **kwargs):
@@ -113,20 +113,20 @@ def action_dischner_nametable(args):
     if not args.xlsx_file:
         raise ValueError('Must specify an output file!')
 
-    import xlsxwriter
+    from .hhu_specific import get_status_groups
 
     with DBConnection(config) as db:
-        workbook = xlsxwriter.Workbook(args.xlsx_file)
-        worksheet = workbook.add_worksheet()
-        bold = workbook.add_format({'bold': 1})
-        worksheet.write(0, 0, 'ID', bold)
-        worksheet.write(0, 1, 'Name', bold)
-
+        status_groups = get_status_groups(db)
         db.execute('SELECT id, display_name FROM user')
-        for idx, row in enumerate(db):
-            worksheet.write(idx + 1, 0, row[0])
-            worksheet.write(idx + 1, 1, row[1])
-        workbook.close()
+        rows = list(db)
+
+        headers = ('ID', 'Name', 'Statusgruppe')
+        tbl = [(
+            99,  # TODO: Random number
+            row[1],
+            status_groups[row[0]],
+        ) for idx, row in enumerate(rows)]
+        write_excel(args.xlsx_file, tbl, headers=headers)
 
 
 def main():

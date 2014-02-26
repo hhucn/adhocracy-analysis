@@ -1,10 +1,13 @@
 import collections
+import contextlib
 import io
 import json
 
 import mysql.connector
 import mysql.connector.constants
 import progress.bar
+
+from .compat import compat_str
 
 
 class keydefaultdict(collections.defaultdict):
@@ -95,3 +98,31 @@ def options(option_list):
 def read_config(args):
     with io.open(args.config_filename, 'r', encoding='utf-8') as configf:
         return json.load(configf)
+
+
+def write_excel(filename, data, headers=None):
+    import xlsxwriter
+    with contextlib.closing(xlsxwriter.Workbook(filename)) as workbook:
+        worksheet = workbook.add_worksheet()
+        bold = workbook.add_format({'bold': 1})
+
+        rowidx = 0
+        maxwidths = [len(compat_str(d)) for d in data[0]]
+        if headers is not None:
+            for col, h in enumerate(headers):
+                maxwidths[col] = max(maxwidths[col], len(compat_str(h)))
+                worksheet.write(rowidx, col, h, bold)
+            rowidx += 1
+
+        for rowidx, row in enumerate(data, start=rowidx + 1):
+            for colidx, d in enumerate(row):
+                maxwidths[colidx] = max(maxwidths[colidx], len(compat_str(d)))
+                worksheet.write(rowidx, colidx, d)
+
+        for colidx, mw in enumerate(maxwidths):
+            worksheet.set_column(colidx, colidx, mw)
+
+
+def db_simple_query(db, sql, *args):
+    db.execute(sql, *args)
+    return [r[0] for r in db]
