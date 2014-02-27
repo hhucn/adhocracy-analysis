@@ -127,7 +127,7 @@ def action_dischner_nametable(args):
 
     with DBConnection(config) as db:
         status_groups = get_status_groups(db)
-        db.execute('SELECT id, display_name FROM user')
+        db.execute('SELECT id, display_name FROM user where id != 1')
         rows = list(db)
 
         rnd = random.Random(123)
