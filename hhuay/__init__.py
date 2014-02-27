@@ -5,11 +5,21 @@ from __future__ import unicode_literals
 import argparse
 import io
 import json
+import random
 import sys
 import time
 
 from . import sources
-from .util import FileProgress, DBConnection, options, Option, read_config, write_excel, gen_random_numbers
+from .util import (
+    DBConnection,
+    FileProgress,
+    gen_random_numbers,
+    Option,
+    options,
+    parse_date,
+    read_config,
+    write_excel,
+)
 
 
 def read_requestlog_all(args, **kwargs):
@@ -119,7 +129,9 @@ def action_dischner_nametable(args):
         status_groups = get_status_groups(db)
         db.execute('SELECT id, display_name FROM user')
         rows = list(db)
-        numbers = gen_random_numbers(0, 999999, len(rows))
+
+        rnd = random.Random(123)
+        numbers = gen_random_numbers(rnd, 0, 999999, len(rows))
 
         headers = ('ID', 'Name', 'Statusgruppe')
         tbl = [(
@@ -127,7 +139,40 @@ def action_dischner_nametable(args):
             row[1],
             status_groups[row[0]],
         ) for idx, (row, rnd) in enumerate(zip(rows, numbers))]
+        rnd.shuffle(tbl)
         write_excel(args.xlsx_file, tbl, headers=headers)
+
+
+@options([])
+def action_cleanup_requestlog(args):
+    """ Remove unneeded requests, or ones we created ourselves """
+
+    config = read_config(args)
+    with DBConnection(config) as db:
+        try:
+            start_date = parse_date(config['startdate'])
+            end_date = parse_date(config['enddate'])
+        except KeyError as ke:
+            raise KeyError('Missing key %s in configuration' % ke.args[0])
+
+        result = db.execute(
+            '''UPDATE requestlog2 SET deleted=1
+                WHERE 0 and (access_time < FROM_UNIXTIME(%s)
+                OR access_time > FROM_UNIXTIME(%s))''',
+            (start_date, end_date))
+        print('execed, result: %r' % result)
+        print(repr(list(result).rowcount))
+        # TODO remove by UA
+
+
+@options([])
+def action_list_uas(args):
+    """ List user agent prevalences """
+
+    config = read_config(args)
+    with DBConnection(config) as db:
+        # TODO query and group
+        pass
 
 
 def main():

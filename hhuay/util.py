@@ -1,8 +1,9 @@
+import calendar
 import collections
 import contextlib
+import datetime
 import io
 import json
-import random
 
 import mysql.connector
 import mysql.connector.constants
@@ -129,11 +130,14 @@ def db_simple_query(db, sql, *args):
     return [r[0] for r in db]
 
 
-def gen_random_numbers(minv, maxv, count, seed=1):
+def gen_random_numbers(rnd, minv, maxv, count):
     assert maxv - minv >= count
-    rnd = random.Random(seed)
-    rnd.seed(seed)
     res = set()
     while len(res) < count:
         res.add(rnd.randint(minv, maxv))
     return list(res)
+
+
+def parse_date(s):
+    d = datetime.datetime.strptime(s, '%Y-%m-%d')
+    return calendar.timegm(d.utctimetuple())
