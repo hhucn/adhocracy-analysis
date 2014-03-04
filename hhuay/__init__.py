@@ -157,12 +157,10 @@ def action_cleanup_requestlog(args):
 
         result = db.execute(
             '''UPDATE requestlog2 SET deleted=1
-                WHERE 0 and (access_time < FROM_UNIXTIME(%s)
-                OR access_time > FROM_UNIXTIME(%s))''',
+                WHERE access_time < FROM_UNIXTIME(%s)
+                      OR access_time > FROM_UNIXTIME(%s)''',
             (start_date, end_date))
-        print('execed, result: %r' % result)
-        print(repr(list(result).rowcount))
-        # TODO remove by UA
+        print('Deleted %d rows due to date constraints' % db.affected_rows())
 
 
 @options([])

@@ -4,6 +4,7 @@ import contextlib
 import datetime
 import io
 import json
+import re
 
 import mysql.connector
 import mysql.connector.constants
@@ -50,8 +51,10 @@ class FileProgress(object):
 
 
 class DBConnection(object):
-    def __init__(self, config):
+    def __init__(self, config, autocommit=True):
         self.config = config
+        self._autocommit = autocommit
+        self._committed = False
 
     def __enter__(self):
         flags = [mysql.connector.constants.ClientFlag.FOUND_ROWS]
@@ -69,16 +72,23 @@ class DBConnection(object):
         self.cursor = self.db.cursor()
         return self
 
-    def execute(self, *args, **kwargs):
-        return self.cursor.execute(*args, **kwargs)
+    def execute(self, sql, *args, **kwargs):
+        sql = re.sub(r'\s*\n\s*', ' ', sql)
+        return self.cursor.execute(sql, *args, **kwargs)
+
+    def affected_rows(self):
+        return self.cursor._rowcount
 
     def __iter__(self):
         return iter(self.cursor)
 
     def commit(self):
+        self._committed = True
         return self.db.commit()
 
     def __exit__(self, typ, value, traceback):
+        if self._autocommit and not self._committed:
+            self.commit()
         self.cursor.close()
         self.db.close()
 
