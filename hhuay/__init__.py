@@ -3,6 +3,7 @@
 from __future__ import unicode_literals
 
 import argparse
+import collections
 import io
 import json
 import random
@@ -68,10 +69,10 @@ def action_file_listrequests(args):
 
 @options([
     Option(
-        '--recreate',
+        '--no-recreate',
         dest='action_load_requestlog_recreate',
         help='Drop and recreate the created requestlog table',
-        action='store_true')
+        action='store_const', default=True, const=False)
 ])
 def action_load_requestlog(args):
     """ Load requestlog into the database """
@@ -155,22 +156,69 @@ def action_cleanup_requestlog(args):
         except KeyError as ke:
             raise KeyError('Missing key %s in configuration' % ke.args[0])
 
-        result = db.execute(
+        db.execute(
             '''UPDATE requestlog2 SET deleted=1
                 WHERE access_time < FROM_UNIXTIME(%s)
                       OR access_time > FROM_UNIXTIME(%s)''',
             (start_date, end_date))
         print('Deleted %d rows due to date constraints' % db.affected_rows())
 
+        db.execute(
+            '''UPDATE requestlog2 SET deleted=1
+                WHERE deleted=0 AND user_agent RLIKE 'GoogleBot|Pingdom|ApacheBench|bingbot|YandexBot|SISTRIX Crawler'
+        ''')
+        print('Deleted %d rows due to UA constraints' % db.affected_rows())
 
-@options([])
+
+@options([
+    Option(
+        '--summarize',
+        dest='summarize',
+        help='Group into browser versions',
+        action='store_true')
+])
 def action_list_uas(args):
     """ List user agent prevalences """
 
     config = read_config(args)
     with DBConnection(config) as db:
-        # TODO query and group
-        pass
+        db.execute('''SELECT user_agent, COUNT(*) as count
+            FROM requestlog2 WHERE NOT deleted GROUP BY user_agent''')
+        uastats_raw = list(db)
+
+    def summarize(ua):
+        if 'Android' in ua:
+            return 'Android'
+        elif 'iPhone' in ua:
+            return 'iPhone'
+        elif 'iPad' in ua:
+            return 'iPad'
+        elif 'Opera/' in ua:
+            return 'Opera'
+        elif 'Firefox/' in ua or 'Iceweasel/' in ua:
+            return 'Firefox'
+        elif 'Chromium/' in ua or 'Chrome/' in ua:
+            return 'Chrome'
+        elif 'MSIE ' in ua:
+            return 'IE'
+        elif 'Konqueror/' in ua:
+            return 'Konqueror'
+        elif 'Safari/' in ua:
+            return 'Safari'
+        elif ua.startswith('Java/'):
+            return 'java'
+        else:
+            return ua
+
+    uastats = collections.Counter()
+    if args.summarize:
+        for ua, cnt in uastats_raw:
+            uastats[summarize(ua)] += cnt
+    else:
+        uastats.update(uastats_raw)
+
+    for ua, cnt in uastats.most_common():
+        print('%7d %s' % (cnt, ua))
 
 
 def main():
