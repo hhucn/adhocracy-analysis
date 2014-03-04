@@ -73,8 +73,10 @@ class DBConnection(object):
         return self
 
     def execute(self, sql, *args, **kwargs):
-        sql = re.sub(r'\s*\n\s*', ' ', sql)
         return self.cursor.execute(sql, *args, **kwargs)
+
+    def executemany(self, sql, *args, **kwargs):
+        return self.cursor.executemany(sql, *args, **kwargs)
 
     def affected_rows(self):
         return self.cursor._rowcount
@@ -91,6 +93,10 @@ class DBConnection(object):
             self.commit()
         self.cursor.close()
         self.db.close()
+
+    @property
+    def lastrowid(self):
+        return self.cursor.lastrowid
 
 
 class Option(object):

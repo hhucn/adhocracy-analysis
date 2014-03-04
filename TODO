@@ -1,10 +1,6 @@
-Daten Denis Frieß
+Session-Verwaltung
 
-action_listuas
-	from database!
-action_cleanup
-	filter by start / end date
-	filter by user agent
+Daten Denis Frieß
 
 extract sessions
 Read user databases!

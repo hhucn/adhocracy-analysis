@@ -10,8 +10,11 @@ import random
 import sys
 import time
 
+import progress.bar
+
 from . import sources
 from .util import (
+    db_simple_query,
     DBConnection,
     FileProgress,
     gen_random_numbers,
@@ -169,6 +172,10 @@ def action_cleanup_requestlog(args):
         ''')
         print('Deleted %d rows due to UA constraints' % db.affected_rows())
 
+        db.execute(
+            '''CREATE OR REPLACE VIEW requestlog3 AS
+                SELECT * FROM requestlog2 WHERE NOT deleted''')
+
 
 @options([
     Option(
@@ -183,7 +190,7 @@ def action_list_uas(args):
     config = read_config(args)
     with DBConnection(config) as db:
         db.execute('''SELECT user_agent, COUNT(*) as count
-            FROM requestlog2 WHERE NOT deleted GROUP BY user_agent''')
+            FROM requestlog3 GROUP BY user_agent''')
         uastats_raw = list(db)
 
     def summarize(ua):
@@ -219,6 +226,98 @@ def action_list_uas(args):
 
     for ua, cnt in uastats.most_common():
         print('%7d %s' % (cnt, ua))
+
+
+@options([
+    Option(
+        '--timeout',
+        dest='timeout',
+        help='Timeout in seconds',
+        type=int,
+        default=600)
+])
+def action_assign_requestlog_sessions(args):
+    config = read_config(args)
+
+    with DBConnection(config) as db, DBConnection(config) as wdb:
+        wdb.execute('''DROP TABLE IF EXISTS analysis_session''')
+        wdb.execute('''CREATE TABLE analysis_session (
+            id int PRIMARY KEY auto_increment,
+            last_update_timestamp int
+        )''')
+
+        wdb.execute('''DROP TABLE IF EXISTS analysis_session_requests''')
+        wdb.execute('''CREATE TABLE analysis_session_requests (
+            session_id int,
+            request_id int
+        )''')
+
+        try:
+            sys.stdout.write('Calculating ETA ...')
+            sys.stdout.flush()
+            count = db_simple_query(db, 'SELECT COUNT(*) FROM requestlog3')[0]
+        finally:
+            sys.stdout.write('\r\x1b[K')
+            sys.stdout.flush()
+
+        def write_session(s):
+            wdb.execute(
+                '''INSERT INTO analysis_session
+                    SET last_update_timestamp=%s''', (s.atime,))
+            session_id = db.lastrowid
+            wdb.executemany(
+                '''INSERT INTO analysis_session_requests
+                    SET session_id=%s, request_id=%s''',
+                [(session_id, rid) for rid in s.requests])
+            return session_id
+
+        class Session(object):
+            __slots__ = 'requests', 'atime'
+
+            def __init__(self):
+                self.requests = []
+                self.atime = None
+
+        last_id = -1
+        bar = progress.bar.Bar(
+            'Assigning sessions', max=count,
+            suffix='%(percent)d%% ETA %(eta)ds')
+        db.execute(
+            '''SELECT id, UNIX_TIMESTAMP(access_time) as time, ip_address, user_agent
+                FROM requestlog3 ORDER BY access_time ASC''')
+        try:
+            # key is the tuple (ip_address, user_agent)
+            # value is a python  of (request_id, time) tuples
+            sessions = collections.defaultdict(Session)
+            STEP = 10000
+            for idx, req in enumerate(db):
+                if idx % STEP == 1:
+                    to_del = []
+                    for key, s in sessions.items():
+                        if s.atime is not None and s.atime + args.timeout < atime:
+                            last_id = write_session(s)
+                            to_del.append(key)
+                    for key in to_del:
+                        del sessions[key]
+                    bar.next(STEP)
+                request_id, atime, ip, ua = req
+                key = (ip, ua)
+                s = sessions[key]
+                if s.atime is not None and s.atime + args.timeout < atime:
+                    last_id = write_session(s)
+                    s = Session()
+                    sessions[key] = s
+                s.requests.append(request_id)
+                s.atime = atime
+
+            for s in bar.iter(sessions.values()):
+                last_id = write_session(s)
+        finally:
+            bar.finish()
+
+        print(
+            'Assigned %d sessions (timeout: %d)' %
+            (last_id, args.timeout))
 
 
 def main():
