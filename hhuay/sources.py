@@ -99,8 +99,8 @@ def _read_apache_log(stream, format, discard=_default_discard,
         m = re.match(
             r'^(?P<sign>[+-])(?P<hours>[0-9]{2})(?P<minutes>[0-9]{2})$', tzstr)
         sgn = -1 if m.group('sign') == '-' else 1
-        res = sgn * (int(m.group('hours')) * 60 + int(m.group('minutes')))
-        return res
+        mins = sgn * (int(m.group('hours')) * 60 + int(m.group('minutes')))
+        return mins * 60
     tz_cache = util.keydefaultdict(calc_timezone_offset)
 
     ts = io.TextIOWrapper(stream, 'utf-8', errors='strict')
@@ -147,7 +147,7 @@ def _read_apache_log(stream, format, discard=_default_discard,
             int(time_m.group(6))
         ))
         tzstr = time_m.group(7)
-        rtime += tz_cache[tzstr]
+        rtime -= tz_cache[tzstr]
 
         user_m = user_rex.match(m.group('cookie'))
         if user_m:

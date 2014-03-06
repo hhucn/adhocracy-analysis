@@ -4,25 +4,32 @@ from __future__ import unicode_literals
 
 import argparse
 import collections
+import csv
 import io
 import json
 import random
+import re
 import sys
 import time
 
-import progress.bar
-
 from . import sources
 from .util import (
-    db_simple_query,
     DBConnection,
     FileProgress,
     gen_random_numbers,
+    get_table_size,
     Option,
     options,
     parse_date,
+    ProgressBar,
     read_config,
+    TableSizeProgressBar,
+    timestamp_str,
+    datetime_str,
     write_excel,
+)
+from .dbhelpers import (
+    extract_user_from_cookies,
 )
 
 
@@ -70,13 +77,7 @@ def action_file_listrequests(args):
         raise ValueError('Invalid list format %r' % format)
 
 
-@options([
-    Option(
-        '--no-recreate',
-        dest='action_load_requestlog_recreate',
-        help='Drop and recreate the created requestlog table',
-        action='store_const', default=True, const=False)
-])
+@options([])
 def action_load_requestlog(args):
     """ Load requestlog into the database """
 
@@ -91,28 +92,31 @@ def action_load_requestlog(args):
         def discard(line):
             discardf.write(line)
 
-        if args.recreate:
-            db.execute('''DROP TABLE IF EXISTS requestlog2;''')
-            db.execute('''CREATE TABLE requestlog2 (
-                id int PRIMARY KEY auto_increment,
-                access_time datetime,
-                ip_address varchar(255),
-                request_url text,
-                cookies text,
-                user_agent text,
-                deleted boolean);
-            ''')
+        db.execute('''DROP TABLE IF EXISTS requestlog2;''')
+        db.execute('''CREATE TABLE requestlog2 (
+            id int PRIMARY KEY auto_increment,
+            access_time int,
+            ip_address varchar(255),
+            request_url text,
+            cookies text,
+            user_agent text,
+            deleted boolean NOT NULL,
+            method varchar(10));
+        ''')
 
         for r in read_requestlog_all(args, discard=discard,
                                      progressclass=FileProgress):
             sql = '''INSERT INTO requestlog2
-                SET access_time = FROM_UNIXTIME(%s),
+                SET access_time = %s,
                     ip_address = %s,
                     request_url = %s,
                     cookies = %s,
-                    user_agent = %s;
+                    user_agent = %s,
+                    method = %s;
             '''
-            db.execute(sql, (r.time, r.ip, r.path, r.cookies, r.user_agent))
+            db.execute(
+                sql,
+                (r.time, r.ip, r.path, r.cookies, r.user_agent, r.method))
         db.commit()
 
 
@@ -147,34 +151,35 @@ def action_dischner_nametable(args):
         write_excel(args.xlsx_file, tbl, headers=headers)
 
 
-@options([])
-def action_cleanup_requestlog(args):
+@options([], requires_db=True)
+def action_cleanup_requestlog(args, config, db, wdb):
     """ Remove unneeded requests, or ones we created ourselves """
 
-    config = read_config(args)
-    with DBConnection(config) as db:
-        try:
-            start_date = parse_date(config['startdate'])
-            end_date = parse_date(config['enddate'])
-        except KeyError as ke:
-            raise KeyError('Missing key %s in configuration' % ke.args[0])
+    try:
+        start_date = parse_date(config['startdate'])
+        end_date = parse_date(config['enddate'])
+    except KeyError as ke:
+        raise KeyError('Missing key %s in configuration' % ke.args[0])
 
-        db.execute(
-            '''UPDATE requestlog2 SET deleted=1
-                WHERE access_time < FROM_UNIXTIME(%s)
-                      OR access_time > FROM_UNIXTIME(%s)''',
-            (start_date, end_date))
-        print('Deleted %d rows due to date constraints' % db.affected_rows())
+    wdb.execute(
+        '''UPDATE requestlog2 SET deleted=1
+            WHERE access_time < FROM_UNIXTIME(%s)
+                  OR access_time > FROM_UNIXTIME(%s)''',
+        (start_date, end_date))
+    wdb.commit()
+    print('Deleted %d rows due to date constraints' % wdb.affected_rows())
 
-        db.execute(
-            '''UPDATE requestlog2 SET deleted=1
-                WHERE deleted=0 AND user_agent RLIKE 'GoogleBot|Pingdom|ApacheBench|bingbot|YandexBot|SISTRIX Crawler'
-        ''')
-        print('Deleted %d rows due to UA constraints' % db.affected_rows())
+    wdb.execute(
+        '''UPDATE requestlog2 SET deleted=1
+            WHERE user_agent RLIKE 'GoogleBot|Pingdom|ApacheBench|bingbot|YandexBot|SISTRIX Crawler'
+    ''')
+    wdb.commit()
+    print('Deleted %d rows due to UA constraints' % wdb.affected_rows())
 
-        db.execute(
-            '''CREATE OR REPLACE VIEW requestlog3 AS
-                SELECT * FROM requestlog2 WHERE NOT deleted''')
+    wdb.execute(
+        '''CREATE OR REPLACE VIEW requestlog3 AS
+            SELECT * FROM requestlog2 WHERE NOT deleted''')
+    wdb.commit()
 
 
 @options([
@@ -228,6 +233,50 @@ def action_list_uas(args):
         print('%7d %s' % (cnt, ua))
 
 
+@options([], requires_db=True)
+def action_dennis_daily_stats(args, config, db, wdb):
+    # make a list of (time, user) for each action
+    db.execute(
+        '''SELECT access_time, user_sid, request_url, method
+        FROM requestlog4
+        WHERE user_sid IS NOT NULL AND user_sid != 'admin'
+        ORDER BY access_time''')
+    all_requests = list(db)
+
+    DAY_SECONDS = 24 * 60 * 60
+    start_ts = parse_date(config['startdate'])
+    end_ts = parse_date(config['enddate'])
+    all_days = [
+        timestamp_str(ts + DAY_SECONDS / 2)
+        for ts in range(start_ts, end_ts, DAY_SECONDS)]
+
+    def collect_stats(data):
+        sets = collections.defaultdict(set)
+        for atime, user in data:
+            day_str = datetime_str(atime)
+            sets[day_str].add(user)
+        counts = {}
+        for d in all_days:
+            counts[d] = len(sets[d])
+        return counts
+
+    METRICS = [
+        ('logged_in', lambda row: True),
+        ('voted', lambda row: 'rate' in row[2]),
+        ('commented', lambda row: row[2].endswith('/comment')),
+        ('proposed', lambda row: row[2].endswith('/proposal')),
+    ]
+
+    res_dict = {
+        mname: collect_stats(
+            [(row[0], row[1]) for row in all_requests if mfunc(row)]
+        )
+        for mname, mfunc in METRICS}
+    res = [[d] + [res_dict[mname][d] for mname, _ in METRICS] for d in all_days]
+    csvo = csv.writer(sys.stdout)
+    csvo.writerows(res)
+
+
 @options([
     Option(
         '--timeout',
@@ -235,89 +284,151 @@ def action_list_uas(args):
         help='Timeout in seconds',
         type=int,
         default=600)
-])
-def action_assign_requestlog_sessions(args):
-    config = read_config(args)
+], requires_db=True)
+def action_assign_requestlog_sessions(args, config, db, wdb):
+    bar = TableSizeProgressBar(db, 'requestlog3', 'Assigning sessions')
 
-    with DBConnection(config) as db, DBConnection(config) as wdb:
-        wdb.execute('''DROP TABLE IF EXISTS analysis_session''')
-        wdb.execute('''CREATE TABLE analysis_session (
-            id int PRIMARY KEY auto_increment,
-            last_update_timestamp int
-        )''')
+    wdb.execute('''DROP TABLE IF EXISTS analysis_session''')
+    wdb.execute('''CREATE TABLE analysis_session (
+        id int PRIMARY KEY auto_increment,
+        last_update_timestamp int
+    )''')
 
-        wdb.execute('''DROP TABLE IF EXISTS analysis_session_requests''')
-        wdb.execute('''CREATE TABLE analysis_session_requests (
-            session_id int,
-            request_id int
-        )''')
+    wdb.execute('''DROP TABLE IF EXISTS analysis_session_requests''')
+    wdb.execute('''CREATE TABLE analysis_session_requests (
+        session_id int,
+        request_id int
+    )''')
 
-        try:
-            sys.stdout.write('Calculating ETA ...')
-            sys.stdout.flush()
-            count = db_simple_query(db, 'SELECT COUNT(*) FROM requestlog3')[0]
-        finally:
-            sys.stdout.write('\r\x1b[K')
-            sys.stdout.flush()
+    def write_session(s):
+        wdb.execute(
+            '''INSERT INTO analysis_session
+                SET last_update_timestamp=%s''', (s.atime,))
+        session_id = db.lastrowid
+        assert session_id is not None
+        wdb.executemany(
+            '''INSERT INTO analysis_session_requests
+                SET session_id=%s, request_id=%s''',
+            [(session_id, rid) for rid in s.requests])
+        return session_id
 
-        def write_session(s):
-            wdb.execute(
-                '''INSERT INTO analysis_session
-                    SET last_update_timestamp=%s''', (s.atime,))
-            session_id = db.lastrowid
-            wdb.executemany(
-                '''INSERT INTO analysis_session_requests
-                    SET session_id=%s, request_id=%s''',
-                [(session_id, rid) for rid in s.requests])
-            return session_id
+    class Session(object):
+        __slots__ = 'requests', 'atime'
 
-        class Session(object):
-            __slots__ = 'requests', 'atime'
+        def __init__(self):
+            self.requests = []
+            self.atime = None
 
-            def __init__(self):
-                self.requests = []
-                self.atime = None
+    last_id = -1
+    db.execute(
+        '''SELECT id, UNIX_TIMESTAMP(access_time) as time, ip_address, user_agent
+            FROM requestlog3 ORDER BY access_time ASC''')
 
-        last_id = -1
-        bar = progress.bar.Bar(
-            'Assigning sessions', max=count,
-            suffix='%(percent)d%% ETA %(eta)ds')
-        db.execute(
-            '''SELECT id, UNIX_TIMESTAMP(access_time) as time, ip_address, user_agent
-                FROM requestlog3 ORDER BY access_time ASC''')
-        try:
-            # key is the tuple (ip_address, user_agent)
-            # value is a python  of (request_id, time) tuples
-            sessions = collections.defaultdict(Session)
-            STEP = 10000
-            for idx, req in enumerate(db):
-                if idx % STEP == 1:
-                    to_del = []
-                    for key, s in sessions.items():
-                        if s.atime is not None and s.atime + args.timeout < atime:
-                            last_id = write_session(s)
-                            to_del.append(key)
-                    for key in to_del:
-                        del sessions[key]
-                    bar.next(STEP)
-                request_id, atime, ip, ua = req
-                key = (ip, ua)
-                s = sessions[key]
-                if s.atime is not None and s.atime + args.timeout < atime:
+    # key is the tuple (ip_address, user_agent)
+    # value is a python  of (request_id, time) tuples
+    sessions = collections.defaultdict(Session)
+    STEP = 10000
+    atime = None
+    for idx, req in enumerate(db):
+        if idx % STEP == 1:
+            to_del = []
+            for key, s in sessions.items():
+                if s.atime + args.timeout < atime:
                     last_id = write_session(s)
-                    s = Session()
-                    sessions[key] = s
-                s.requests.append(request_id)
-                s.atime = atime
+                    to_del.append(key)
+            for key in to_del:
+                del sessions[key]
+        bar.next()
+        request_id, atime, ip, ua = req
+        key = (ip, ua)
+        s = sessions[key]
+        if s.atime is not None and s.atime + args.timeout < atime:
+            last_id = write_session(s)
+            s = Session()
+            sessions[key] = s
+        s.requests.append(request_id)
+        s.atime = atime
 
-            for s in bar.iter(sessions.values()):
-                last_id = write_session(s)
-        finally:
-            bar.finish()
+    for s in sessions.values():
+        last_id = write_session(s)
 
-        print(
-            'Assigned %d sessions (timeout: %d)' %
-            (last_id, args.timeout))
+    print(
+        'Assigned %d sessions (timeout: %d)' %
+        (last_id, args.timeout))
+
+
+@options([], requires_db=True)
+def action_annotate_requests(args, config, db, wdb):
+    """ Filter out the interesting requests to HTML pages and copy all the
+        information we got with them (for example duration) into one row"""
+
+    bar = TableSizeProgressBar(
+        db, 'requestlog3',
+        'Collecting request information')
+
+    wdb.execute('''DROP TABLE IF EXISTS analysis_request_annotations''')
+    wdb.execute('''CREATE TABLE analysis_request_annotations (
+        id int PRIMARY KEY auto_increment,
+        request_id int,
+        user_sid varchar(64),
+        duration int,
+        detail_json TEXT,
+        INDEX (request_id),
+        INDEX (user_sid)
+    )''')
+
+    class RequestInfo(object):
+        __slots__ = 'access_time', 'latest_update', 'user_sid'
+
+        def __init__(self, access_time, user_sid):
+            self.access_time = access_time
+            self.user_sid = user_sid
+            self.latest_update = None
+
+    def write_request(key, ri):
+        ip, user_agent, request_url = key
+        wdb.execute(
+            '''INSERT INTO analysis_request_annotations
+                SET request_id=%s, user_sid=%s
+            ''', (request_id, ri.user_sid))
+
+    # Key: (ip, user_agent, request_url), value: RequestInfo
+    requests = {}
+
+    is_stats = re.compile('(?:/i/[^/]+)?/stats/')
+    is_static = re.compile('/favicon\.ico|/images/|/fanstatic/')
+
+    db.execute(
+        '''SELECT id, UNIX_TIMESTAMP(access_time) as atime,
+                  ip_address, user_agent, request_url, cookies
+            FROM requestlog3 ORDER BY access_time ASC''')
+    for req in db:
+        bar.next()
+        request_id, atime, ip, user_agent, request_url, cookies = req
+        if is_stats.match(request_url):
+            continue  # Skip for now
+        elif is_static.match(request_url):
+            continue  # Skip
+        key = (ip, user_agent, request_url)
+        cur = requests.get(key)
+        if cur is not None:
+            write_request(key, cur)
+        user = extract_user_from_cookies(cookies, None)
+        requests[key] = RequestInfo(atime, user)
+    bar.finish()
+
+    print('Writing out %d requests ...' % len(requests))
+    for key, ri in requests.items():
+        write_request(key, ri)
+
+    wdb.execute('''CREATE OR REPLACE VIEW requestlog4 AS
+        SELECT requestlog3.*,
+            analysis_request_annotations.user_sid as user_sid,
+            analysis_request_annotations.duration as duration,
+            analysis_request_annotations.detail_json as detail_json
+        FROM requestlog3, analysis_request_annotations
+        WHERE requestlog3.id = analysis_request_annotations.request_id
+    ''')
 
 
 def main():

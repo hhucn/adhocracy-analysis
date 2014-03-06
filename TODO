@@ -1,6 +1,27 @@
-Session-Verwaltung
+track #0
+--------
+
+daily activity
+just look in the raw (non-stats) requests
+
+track #1
+--------
+
+classify each session as to what happened in any requests
+annotate requests (length, other params)
+-> see which users involved in a session
+	if one: done!
+	if none: anonymous
+	if multiple: split session! (or filter out)
+
+
+
+session management
+    associate sessions with users
+
 
 Daten Denis Frieß
+    statistics about who read/voted/wrote each day
 
 extract sessions
 Read user databases!
