@@ -233,7 +233,7 @@ def get_table_size(db, table):
     try:
         sys.stdout.write('Calculating ETA ...')
         sys.stdout.flush()
-        count = db_simple_query(db, 'SELECT COUNT(*) FROM ' + table)[0]
+        count = db.simple_query('SELECT COUNT(*) FROM ' + table)[0]
         assert isinstance(count, int)
     finally:
         sys.stdout.write('\r\x1b[K')

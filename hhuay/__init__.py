@@ -253,7 +253,7 @@ def action_dennis_daily_stats(args, config, db, wdb):
     def collect_stats(data):
         sets = collections.defaultdict(set)
         for atime, user in data:
-            day_str = datetime_str(atime)
+            day_str = timestamp_str(atime)
             sets[day_str].add(user)
         counts = {}
         for d in all_days:
@@ -272,6 +272,8 @@ def action_dennis_daily_stats(args, config, db, wdb):
             [(row[0], row[1]) for row in all_requests if mfunc(row)]
         )
         for mname, mfunc in METRICS}
+    for mname, _ in METRICS:
+        assert any(res_dict[mname].values()), 'Empty %s' % mname
     res = [[d] + [res_dict[mname][d] for mname, _ in METRICS] for d in all_days]
     csvo = csv.writer(sys.stdout)
     csvo.writerows(res)
@@ -395,8 +397,8 @@ def action_annotate_requests(args, config, db, wdb):
     # Key: (ip, user_agent, request_url), value: RequestInfo
     requests = {}
 
-    is_stats = re.compile('(?:/i/[^/]+)?/stats/')
-    is_static = re.compile('/favicon\.ico|/images/|/fanstatic/')
+    is_stats = re.compile('/+(?:i/[^/]+/)?stats/')
+    is_static = re.compile('/favicon\.ico|/images/|/fanstatic/|/stylesheets/|/robots.txt|/javascripts')
 
     db.execute(
         '''SELECT id, UNIX_TIMESTAMP(access_time) as atime,

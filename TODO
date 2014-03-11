@@ -67,6 +67,7 @@ request paths, how do people navigate
 activity by date
 activity by time
 
+who sorted?
 how long on site?
 	break down by
 		frontsite
@@ -82,4 +83,7 @@ details
 
 
 Rothe
-	diffs
+	diffs between proposals
+
+define generic solution for working with db and / or JSON and / or protobuf
+	helper methods instead of SQL
