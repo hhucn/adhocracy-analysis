@@ -14,8 +14,8 @@ import time
 
 from . import sources
 from .util import (
-    DBConnection,
     FileProgress,
+    extract_user_from_cookies,
     gen_random_numbers,
     get_table_size,
     Option,
@@ -29,8 +29,9 @@ from .util import (
     write_excel,
 )
 from .dbhelpers import (
-    extract_user_from_cookies,
+    DBConnection,
 )
+from .hhu_actions import action_dennis_daily_stats
 
 
 def read_requestlog_all(args, **kwargs):
@@ -163,8 +164,8 @@ def action_cleanup_requestlog(args, config, db, wdb):
 
     wdb.execute(
         '''UPDATE requestlog2 SET deleted=1
-            WHERE access_time < FROM_UNIXTIME(%s)
-                  OR access_time > FROM_UNIXTIME(%s)''',
+            WHERE access_time < %s
+                  OR access_time > %s''',
         (start_date, end_date))
     wdb.commit()
     print('Deleted %d rows due to date constraints' % wdb.affected_rows())
@@ -233,50 +234,6 @@ def action_list_uas(args):
         print('%7d %s' % (cnt, ua))
 
 
-@options([], requires_db=True)
-def action_dennis_daily_stats(args, config, db, wdb):
-    # make a list of (time, user) for each action
-    db.execute(
-        '''SELECT access_time, user_sid, request_url, method
-        FROM requestlog4
-        WHERE user_sid IS NOT NULL AND user_sid != 'admin'
-        ORDER BY access_time''')
-    all_requests = list(db)
-
-    DAY_SECONDS = 24 * 60 * 60
-    start_ts = parse_date(config['startdate'])
-    end_ts = parse_date(config['enddate'])
-    all_days = [
-        timestamp_str(ts + DAY_SECONDS / 2)
-        for ts in range(start_ts, end_ts, DAY_SECONDS)]
-
-    def collect_stats(data):
-        sets = collections.defaultdict(set)
-        for atime, user in data:
-            day_str = timestamp_str(atime)
-            sets[day_str].add(user)
-        counts = {}
-        for d in all_days:
-            counts[d] = len(sets[d])
-        return counts
-
-    METRICS = [
-        ('logged_in', lambda row: True),
-        ('voted', lambda row: 'rate' in row[2]),
-        ('commented', lambda row: row[2].endswith('/comment')),
-        ('proposed', lambda row: row[2].endswith('/proposal')),
-    ]
-
-    res_dict = {
-        mname: collect_stats(
-            [(row[0], row[1]) for row in all_requests if mfunc(row)]
-        )
-        for mname, mfunc in METRICS}
-    for mname, _ in METRICS:
-        assert any(res_dict[mname].values()), 'Empty %s' % mname
-    res = [[d] + [res_dict[mname][d] for mname, _ in METRICS] for d in all_days]
-    csvo = csv.writer(sys.stdout)
-    csvo.writerows(res)
 
 
 @options([
@@ -305,7 +262,7 @@ def action_assign_requestlog_sessions(args, config, db, wdb):
     def write_session(s):
         wdb.execute(
             '''INSERT INTO analysis_session
-                SET last_update_timestamp=%s''', (s.atime,))
+                SET last_update_timestamp=%s''', (s.time,))
         session_id = db.lastrowid
         assert session_id is not None
         wdb.executemany(
@@ -315,11 +272,11 @@ def action_assign_requestlog_sessions(args, config, db, wdb):
         return session_id
 
     class Session(object):
-        __slots__ = 'requests', 'atime'
+        __slots__ = 'requests', 'time'
 
         def __init__(self):
             self.requests = []
-            self.atime = None
+            self.time = None
 
     last_id = -1
     db.execute(
@@ -335,7 +292,7 @@ def action_assign_requestlog_sessions(args, config, db, wdb):
         if idx % STEP == 1:
             to_del = []
             for key, s in sessions.items():
-                if s.atime + args.timeout < atime:
+                if s.time + args.timeout < atime:
                     last_id = write_session(s)
                     to_del.append(key)
             for key in to_del:
@@ -344,12 +301,12 @@ def action_assign_requestlog_sessions(args, config, db, wdb):
         request_id, atime, ip, ua = req
         key = (ip, ua)
         s = sessions[key]
-        if s.atime is not None and s.atime + args.timeout < atime:
+        if s.time is not None and s.time + args.timeout < atime:
             last_id = write_session(s)
             s = Session()
             sessions[key] = s
         s.requests.append(request_id)
-        s.atime = atime
+        s.time = atime
 
     for s in sessions.values():
         last_id = write_session(s)

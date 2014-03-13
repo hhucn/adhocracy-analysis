@@ -13,10 +13,14 @@ Request = collections.namedtuple(
     ('time', 'ip', 'method', 'path', 'cookies', 'referer', 'user_agent',
      'username'))
 
-
 User = collections.namedtuple(
     'User',
     ('name', 'email', 'badges')
+)
+
+Vote = collections.namedtuple(
+    'Vote',
+    ('id', 'subject', 'time', 'orientation', 'user')
 )
 
 
@@ -163,3 +167,13 @@ def _read_apache_log(stream, format, discard=_default_discard,
         yield req
 
     progress.finish()
+
+
+def get_votes_from_db(db):
+    db.execute(
+        '''SELECT
+            vote.id, poll.subject, vote.create_time, vote.orientation, user.name,
+            FROM vote, poll, user
+            WHERE voted.poll_id = poll.id and vote.user_id = user.id''')
+    for row in db:
+        yield Vote(*row)
