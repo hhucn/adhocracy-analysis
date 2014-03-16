@@ -2,24 +2,21 @@ import collections
 import csv
 import sys
 
-from .sources import get_votes_from_db
+from .sources import (
+    get_comments_from_db,
+    get_proposals_from_db,
+    get_votes_from_db,
+)
 from .util import (
     options,
     parse_date,
     timestamp_str,
 )
+from .filters import filter_config_dates
 
 
 @options([], requires_db=True)
 def action_dennis_daily_stats(args, config, db, wdb):
-    # make a list of (time, user) for each action
-    db.execute(
-        '''SELECT access_time, user_sid, request_url, method
-        FROM requestlog4
-        WHERE user_sid IS NOT NULL AND user_sid != 'admin'
-        ORDER BY access_time''')
-    all_requests = list(db)
-
     DAY_SECONDS = 24 * 60 * 60
     start_ts = parse_date(config['startdate'])
     end_ts = parse_date(config['enddate'])
@@ -39,20 +36,39 @@ def action_dennis_daily_stats(args, config, db, wdb):
 
     METRICS = [
         ('logged_in', lambda row: True),
-        ('voted', lambda row: 'rate' in row[2]),
-        ('commented', lambda row: row[2].endswith('/comment')),
-        ('proposed', lambda row: row[2].endswith('/proposal')),
+        ('vote', lambda row: '/rate' in row[2]),
+        ('comment', lambda row: row[2].endswith('/comment')),
+        ('proposal', lambda row: row[2].endswith('/proposal')),
     ]
 
-    # TODO check retrieval
+    # Fetch database-recorded values
+    db_values = {
+        'vote': filter_config_dates(get_votes_from_db(db), config),
+        'comment': filter_config_dates(get_comments_from_db(db), config),
+        'proposal': filter_config_dates(get_proposals_from_db(db), config),
+    }
 
-    res_dict = {
-        mname: collect_stats(
-            [(row[0], row[1]) for row in all_requests if mfunc(row)]
-        )
-        for mname, mfunc in METRICS}
+    # make a list of (time, user) for each action
+    db.execute(
+        '''SELECT access_time, user_sid, request_url, method
+        FROM requestlog4
+        WHERE user_sid IS NOT NULL AND user_sid != 'admin'
+        ORDER BY access_time''')
+    all_requests = list(db)
+
+    matching_requests = dict(
+        (mname,
+         [(row[0], row[1]) for row in all_requests if mfunc(row)])
+        for mname, mfunc in METRICS)
+
+    for k in sorted(db_values):
+        print('%s: %d in db, %d in requests' % (k, len(list(db_values[k])), len(matching_requests[k])))
+    return
+
+    res_dict = {mname: collect_stats(mrs) for mrs in matching_requests}
     for mname, _ in METRICS:
         assert any(res_dict[mname].values()), 'Empty %s' % mname
+
     res = [[d] + [res_dict[mname][d] for mname, _ in METRICS] for d in all_days]
     csvo = csv.writer(sys.stdout)
     csvo.writerows(res)

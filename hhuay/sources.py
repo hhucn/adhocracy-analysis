@@ -23,6 +23,16 @@ Vote = collections.namedtuple(
     ('id', 'subject', 'time', 'orientation', 'user')
 )
 
+Comment = collections.namedtuple(
+    'Comment',
+    ('id', 'time', 'user')
+)
+
+Proposal = collections.namedtuple(
+    'Proposal',
+    ('id', 'time', 'user')
+)
+
 
 def _default_discard(line):
     raise ValueError('Line %r does not match pattern' % (line))
@@ -172,8 +182,31 @@ def _read_apache_log(stream, format, discard=_default_discard,
 def get_votes_from_db(db):
     db.execute(
         '''SELECT
-            vote.id, poll.subject, vote.create_time, vote.orientation, user.name,
+            vote.id, poll.subject, UNIX_TIMESTAMP(vote.create_time),
+            vote.orientation, user.user_name
             FROM vote, poll, user
-            WHERE voted.poll_id = poll.id and vote.user_id = user.id''')
+            WHERE vote.poll_id = poll.id and vote.user_id = user.id''')
     for row in db:
         yield Vote(*row)
+
+
+def get_proposals_from_db(db):
+    db.execute(
+        '''SELECT
+            proposal.id, UNIX_TIMESTAMP(delegateable.access_time), user.user_name
+            FROM proposal, delegateable, user
+            WHERE proposal.id = delegateable.id and delegateable.creator_id = user.id
+                and delegateable.delete_time IS NULL''')
+    for row in db:
+        yield Proposal(*row)
+
+
+def get_comments_from_db(db):
+    db.execute(
+        '''SELECT
+            comment.id, UNIX_TIMESTAMP(comment.create_time), user.user_name
+            FROM comment, delegateable, user
+            WHERE comment.id = delegateable.id and comment.creator_id = user.id
+                and comment.delete_time IS NULL''')
+    for row in db:
+        yield Comment(*row)

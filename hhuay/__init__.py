@@ -354,8 +354,18 @@ def action_annotate_requests(args, config, db, wdb):
     # Key: (ip, user_agent, request_url), value: RequestInfo
     requests = {}
 
-    is_stats = re.compile('/+(?:i/[^/]+/)?stats/')
-    is_static = re.compile('/favicon\.ico|/images/|/fanstatic/|/stylesheets/|/robots.txt|/javascripts')
+    is_stats = re.compile(r'/+(?:i/[^/]+/)?stats/')
+    is_static = re.compile(r'''(?x)
+        /favicon\.ico|
+        /images/|
+        /fanstatic/|
+        /stylesheets/|
+        /robots\.txt|
+        /javascripts|
+        # Technically not static, but very close
+        /admin|
+        /i/[^/]+/instance/[^/]+/settings
+    ''')
 
     db.execute(
         '''SELECT id, UNIX_TIMESTAMP(access_time) as atime,

@@ -1,3 +1,5 @@
+get vote over time
+
 
 track #0
 --------
@@ -88,3 +90,8 @@ Rothe
 
 define generic solution for working with db and / or JSON and / or protobuf
 	helper methods instead of SQL
+
+in config:
+	source: "mysql:"
+	dst: "mysql:..."
+
