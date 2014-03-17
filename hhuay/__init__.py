@@ -4,10 +4,8 @@ from __future__ import unicode_literals
 
 import argparse
 import collections
-import csv
 import io
 import json
-import random
 import re
 import sys
 import time
@@ -16,22 +14,17 @@ from . import sources
 from .util import (
     FileProgress,
     extract_user_from_cookies,
-    gen_random_numbers,
-    get_table_size,
     Option,
     options,
     parse_date,
-    ProgressBar,
     read_config,
     TableSizeProgressBar,
-    timestamp_str,
-    datetime_str,
-    write_excel,
 )
 from .dbhelpers import (
     DBConnection,
 )
-from .hhu_actions import action_dennis_daily_stats
+from . import hhu_actions
+from .sources import get_votes_from_db
 
 
 def read_requestlog_all(args, **kwargs):
@@ -121,37 +114,6 @@ def action_load_requestlog(args):
         db.commit()
 
 
-@options([
-    Option('--xlsx-file', dest='xlsx_file', metavar='FILENAME',
-           help='Name of the Excel file to write')
-])
-def action_dischner_nametable(args):
-    """ Create a list of names and user IDs and write is as xlsx """
-
-    config = read_config(args)
-    if not args.xlsx_file:
-        raise ValueError('Must specify an output file!')
-
-    from .hhu_specific import get_status_groups
-
-    with DBConnection(config) as db:
-        status_groups = get_status_groups(db)
-        db.execute('SELECT id, display_name FROM user where id != 1')
-        rows = list(db)
-
-        rnd = random.Random(123)
-        numbers = gen_random_numbers(rnd, 0, 999999, len(rows))
-
-        headers = ('ID', 'Name', 'Statusgruppe')
-        tbl = [(
-            '%06d' % rnd,
-            row[1],
-            status_groups[row[0]],
-        ) for idx, (row, rnd) in enumerate(zip(rows, numbers))]
-        rnd.shuffle(tbl)
-        write_excel(args.xlsx_file, tbl, headers=headers)
-
-
 @options([], requires_db=True)
 def action_cleanup_requestlog(args, config, db, wdb):
     """ Remove unneeded requests, or ones we created ourselves """
@@ -234,6 +196,10 @@ def action_list_uas(args):
         print('%7d %s' % (cnt, ua))
 
 
+@options(requires_db=True)
+def action_list_votes(args, config, db, wdb):
+    for v in get_votes_from_db(db):
+        print(v, )
 
 
 @options([
@@ -344,6 +310,9 @@ def action_annotate_requests(args, config, db, wdb):
             self.user_sid = user_sid
             self.latest_update = None
 
+        def __str__(self):
+            return '%d %s' % (self.access_time, self.user_sid)
+
     def write_request(key, ri):
         ip, user_agent, request_url = key
         wdb.execute(
@@ -367,10 +336,13 @@ def action_annotate_requests(args, config, db, wdb):
         /i/[^/]+/instance/[^/]+/settings
     ''')
 
+    write_count = 0
     db.execute(
-        '''SELECT id, UNIX_TIMESTAMP(access_time) as atime,
+        '''SELECT id, access_time as atime,
                   ip_address, user_agent, request_url, cookies
-            FROM requestlog3 ORDER BY access_time ASC''')
+            FROM requestlog3
+            ORDER BY access_time ASC
+            ''')
     for req in db:
         bar.next()
         request_id, atime, ip, user_agent, request_url, cookies = req
@@ -382,11 +354,16 @@ def action_annotate_requests(args, config, db, wdb):
         cur = requests.get(key)
         if cur is not None:
             write_request(key, cur)
+            del requests[key]
+            write_count += 1
         user = extract_user_from_cookies(cookies, None)
         requests[key] = RequestInfo(atime, user)
+        #write_request(key, RequestInfo(atime, user))
+        #write_count += 1
     bar.finish()
 
-    print('Writing out %d requests ...' % len(requests))
+    print('Writing out %d requests (already wrote out %d inline) ...' % (
+        len(requests), write_count))
     for key, ri in requests.items():
         write_request(key, ri)
 
@@ -415,7 +392,9 @@ def main():
 
     subparsers = parser.add_subparsers(
         title='action', help='What to do', dest='action')
-    all_actions = [a for name, a in sorted(globals().items())
+    glbls = dict(globals())
+    glbls.update(hhu_actions.__dict__)
+    all_actions = [a for name, a in sorted(glbls.items())
                    if name.startswith('action_')]
     for a in all_actions:
         _, e, action_name = a.__name__.partition('action_')

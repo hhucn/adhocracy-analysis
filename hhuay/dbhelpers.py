@@ -1,5 +1,3 @@
-import re
-
 import mysql.connector
 import mysql.connector.constants
 
