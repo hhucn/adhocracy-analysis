@@ -7,6 +7,8 @@ import re
 
 from . import util
 from .util import NoProgress
+from .filters import filter_config_dates
+
 
 Request = collections.namedtuple(
     'Request',
@@ -210,3 +212,48 @@ def get_comments_from_db(db):
                 and comment.delete_time IS NULL''')
     for row in db:
         yield Comment(*row)
+
+
+Action = collections.namedtuple('Action', ['key', 'rl_value', 'db_value'])
+
+
+def get_all_actions(config, db):
+    METRICS = [
+        ('logged_in', lambda row: True, lambda *args: []),
+        (
+            'vote',
+            lambda row: '/rate' in row[2],
+            get_votes_from_db
+        ),
+        (
+            'comment',
+            lambda row: row[2].endswith('/comment'),
+            get_comments_from_db
+        ),
+        (
+            'proposal',
+            lambda row: row[2].endswith('/proposal'),
+            get_proposals_from_db
+        ),
+    ]
+
+    # make a list of (time, user) for each action
+    db.execute(
+        '''SELECT access_time, user_sid, request_url, method
+        FROM requestlog4
+        WHERE user_sid IS NOT NULL AND user_sid != 'admin'
+        ORDER BY access_time''')
+    all_requests = list(db)
+
+    matching_requests = dict(
+        (mname,
+         [(row[0], row[1]) for row in all_requests if mfunc(row)])
+        for mname, mfunc, _ in METRICS)
+
+    return [
+        Action(
+            mname,
+            matching_requests[mname],
+            list(filter_config_dates(dbfunc(db), config)),
+        )
+        for mname, _, dbfunc in METRICS]

@@ -4,9 +4,7 @@ import random
 import sys
 
 from .sources import (
-    get_comments_from_db,
-    get_proposals_from_db,
-    get_votes_from_db,
+    get_all_actions,
 )
 from .util import (
     gen_random_numbers,
@@ -16,7 +14,6 @@ from .util import (
     timestamp_str,
     write_excel,
 )
-from .filters import filter_config_dates
 
 
 @options([], requires_db=True)
@@ -38,47 +35,14 @@ def action_dennis_daily_stats(args, config, db, wdb):
             counts[d] = len(sets[d])
         return counts
 
-    METRICS = [
-        ('logged_in', lambda row: True, []),
-        (
-            'vote',
-            lambda row: '/rate' in row[2],
-            filter_config_dates(get_votes_from_db(db), config)
-        ),
-        (
-            'comment',
-            lambda row: row[2].endswith('/comment'),
-            filter_config_dates(get_comments_from_db(db), config)
-        ),
-        (
-            'proposal',
-            lambda row: row[2].endswith('/proposal'),
-            filter_config_dates(get_proposals_from_db(db), config)
-        ),
-    ]
+    actions = get_all_actions(config, db)
 
-    # make a list of (time, user) for each action
-    db.execute(
-        '''SELECT access_time, user_sid, request_url, method
-        FROM requestlog4
-        WHERE user_sid IS NOT NULL AND user_sid != 'admin'
-        ORDER BY access_time''')
-    all_requests = list(db)
-
-    matching_requests = dict(
-        (mname,
-         [(row[0], row[1]) for row in all_requests if mfunc(row)])
-        for mname, mfunc, _ in METRICS)
-
-    for k, _, db_value in sorted(METRICS):
-        uname = ''
-        db_filtered = filter(lambda e: e.user == uname, db_value)
-        reqs_filtered = filter(lambda req: req[1] == uname, matching_requests[k])
-        print('%s: %d in db, %d in requests' % (k, len(list(db_filtered)), len(list(reqs_filtered))))
+    for a in actions:
+        sys.stderr.write('%s: %d in db, %d in requests\n' % (
+            a.key, len(a.db_value), len(a.rl_value)))
     return
-
     res_dict = {mname: collect_stats(mrs) for mname, mrs in matching_requests.items()}
-    for mname, _ in METRICS:
+    for a in action:
         assert any(res_dict[mname].values()), 'Empty %s' % mname
 
     res = [[d] + [res_dict[mname][d] for mname, _ in METRICS] for d in all_days]

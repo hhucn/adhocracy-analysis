@@ -303,9 +303,10 @@ def action_annotate_requests(args, config, db, wdb):
     )''')
 
     class RequestInfo(object):
-        __slots__ = 'access_time', 'latest_update', 'user_sid'
+        __slots__ = 'request_id', 'access_time', 'latest_update', 'user_sid'
 
-        def __init__(self, access_time, user_sid):
+        def __init__(self, request_id, access_time, user_sid):
+            self.request_id = request_id
             self.access_time = access_time
             self.user_sid = user_sid
             self.latest_update = None
@@ -318,7 +319,7 @@ def action_annotate_requests(args, config, db, wdb):
         wdb.execute(
             '''INSERT INTO analysis_request_annotations
                 SET request_id=%s, user_sid=%s
-            ''', (request_id, ri.user_sid))
+            ''', (ri.request_id, ri.user_sid))
 
     # Key: (ip, user_agent, request_url), value: RequestInfo
     requests = {}
@@ -350,6 +351,7 @@ def action_annotate_requests(args, config, db, wdb):
             continue  # Skip for now
         elif is_static.match(request_url):
             continue  # Skip
+        assert '/stats' not in request_url
         key = (ip, user_agent, request_url)
         cur = requests.get(key)
         if cur is not None:
@@ -357,9 +359,7 @@ def action_annotate_requests(args, config, db, wdb):
             del requests[key]
             write_count += 1
         user = extract_user_from_cookies(cookies, None)
-        requests[key] = RequestInfo(atime, user)
-        #write_request(key, RequestInfo(atime, user))
-        #write_count += 1
+        requests[key] = RequestInfo(request_id, atime, user)
     bar.finish()
 
     print('Writing out %d requests (already wrote out %d inline) ...' % (
@@ -410,7 +410,7 @@ def main():
     if not args.action:
         parser.error(u'No action specified')
 
-    action = globals().get('action_' + args.action)
+    action = glbls['action_' + args.action]
     action_id = 'action_' + args.action + '_'
     params = {n[len(action_id):]: getattr(args, n)
               for n in dir(args) if n.startswith(action_id)}
