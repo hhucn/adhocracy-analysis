@@ -37,10 +37,6 @@ def action_dennis_daily_stats(args, config, db, wdb):
 
     actions = get_all_actions(config, db)
 
-    for a in actions:
-        sys.stderr.write('%s: %d in db, %d in requests\n' % (
-            a.key, len(a.db_value), len(a.rl_value)))
-    return
     res_dict = {mname: collect_stats(mrs) for mname, mrs in matching_requests.items()}
     for a in action:
         assert any(res_dict[mname].values()), 'Empty %s' % mname
@@ -77,3 +73,14 @@ def action_dischner_nametable(args, config, db, wedb):
     ) for idx, (row, rnd_id) in enumerate(zip(rows, numbers))]
     rnd.shuffle(tbl)
     write_excel(args.xlsx_file, tbl, headers=headers)
+
+
+@options([
+    Option('--input-file', dest='input_file', metavar='FILENAME',
+           help='Name of the CSV file to read'),
+    Option('--poll-file', dest='poll_file', metavar='FILENAME',
+           help='Name of the (tobias-formatted) file of the poll results')
+], requires_db=True)
+def action_discher_filltable(args, config, db, wdb):
+    pass
+

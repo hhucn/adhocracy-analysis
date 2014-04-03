@@ -219,7 +219,7 @@ Action = collections.namedtuple('Action', ['key', 'rl_value', 'db_value'])
 
 def get_all_actions(config, db):
     METRICS = [
-        ('logged_in', lambda row: True, lambda *args: []),
+        ('logged_in', lambda row: True, lambda *args: None),
         (
             'vote',
             lambda row: '/rate' in row[2],

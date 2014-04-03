@@ -11,6 +11,7 @@ import sys
 import time
 
 from . import sources
+from . import actions
 from .util import (
     FileProgress,
     extract_user_from_cookies,
@@ -24,7 +25,6 @@ from .dbhelpers import (
     DBConnection,
 )
 from . import hhu_actions
-from .sources import get_votes_from_db
 
 
 def read_requestlog_all(args, **kwargs):
@@ -198,7 +198,7 @@ def action_list_uas(args):
 
 @options(requires_db=True)
 def action_list_votes(args, config, db, wdb):
-    for v in get_votes_from_db(db):
+    for v in sources.get_votes_from_db(db):
         print(v, )
 
 
@@ -282,7 +282,7 @@ def action_assign_requestlog_sessions(args, config, db, wdb):
         (last_id, args.timeout))
 
 
-@options([], requires_db=True)
+@options(requires_db=True)
 def action_annotate_requests(args, config, db, wdb):
     """ Filter out the interesting requests to HTML pages and copy all the
         information we got with them (for example duration) into one row"""
@@ -394,6 +394,7 @@ def main():
         title='action', help='What to do', dest='action')
     glbls = dict(globals())
     glbls.update(hhu_actions.__dict__)
+    glbls.update(actions.__dict__)
     all_actions = [a for name, a in sorted(glbls.items())
                    if name.startswith('action_')]
     for a in all_actions:
