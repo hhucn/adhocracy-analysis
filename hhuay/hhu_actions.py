@@ -78,9 +78,34 @@ def action_dischner_nametable(args, config, db, wedb):
 @options([
     Option('--input-file', dest='input_file', metavar='FILENAME',
            help='Name of the CSV file to read'),
+    Option('--assoc-file', dest='assoc_file', metavar='FILENAME',
+           help='Name of the association file (CSV format)'),
     Option('--poll-file', dest='poll_file', metavar='FILENAME',
            help='Name of the (tobias-formatted) file of the poll results')
 ], requires_db=True)
 def action_discher_filltable(args, config, db, wdb):
-    pass
+    if not args.input_file:
+        raise ValueError('Missing --input-file !')
 
+    if not args.assoc_file:
+        raise ValueError('Missing --assoc-file !')
+
+    if not args.poll_file:
+        raise ValueError('Missing --poll-file !')
+
+    name_to_uid = {}
+    db.execute('''
+        SELECT id, display_name FROM user WHERE id != 1
+    ''')
+    for row in db:
+        name_to_uid[row[1]] = row[0]
+
+    anonid_to_uid = {}
+    with open(args.assoc_file, encoding='utf-8') as assocf:
+        assoc_reader = csv.reader(assocf)
+        for line in list(assoc_reader)[1:]:
+            anonid = line[0]
+            display_name = line[1]
+            anonid_to_uid[anonid] = name_to_uid[display_name]
+
+    TODO

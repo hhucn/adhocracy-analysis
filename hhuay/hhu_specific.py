@@ -1,6 +1,3 @@
-from .util import db_simple_query
-
-
 def get_status_groups(db):
     """ Returns a dictionary user_id => Statusgruppe """
 
@@ -11,9 +8,9 @@ def get_status_groups(db):
         return 'Sonstige'
 
     res = {}
-    uids = db_simple_query(db, 'SELECT id FROM user')
+    uids = db.simple_query('SELECT id FROM user')
     for uid in uids:
-        badges = db_simple_query(db, '''
+        badges = db.simple_query('''
             SELECT badge.title FROM badge, user_badges
             WHERE badge.id = user_badges.badge_id AND
                   user_badges.user_id = %s''', (uid,))
