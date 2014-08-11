@@ -4,6 +4,7 @@ import io
 import json
 import lzma
 import re
+import sys
 
 from . import util
 from .util import NoProgress

@@ -1,50 +1,50 @@
-import collections
+#import collections
 import csv
 import io
 import random
-import sys
+#import sys
 
-from .sources import (
-    get_all_actions,
-)
+#from .sources import (
+#    get_all_actions,
+#)
 from .util import (
     gen_random_numbers,
     Option,
     options,
-    parse_date,
-    timestamp_str,
+    # parse_date,
+    # timestamp_str,
     write_excel,
 )
 
 
-@options([], requires_db=True)
-def action_dennis_daily_stats(args, config, db, wdb):
-    DAY_SECONDS = 24 * 60 * 60
-    start_ts = parse_date(config['startdate'])
-    end_ts = parse_date(config['enddate'])
-    all_days = [
-        timestamp_str(ts + DAY_SECONDS / 2)
-        for ts in range(start_ts, end_ts, DAY_SECONDS)]
+#@options([], requires_db=True)
+# def action_dennis_daily_stats(args, config, db, wdb):
+#     DAY_SECONDS = 24 * 60 * 60
+#     start_ts = parse_date(config['startdate'])
+#     end_ts = parse_date(config['enddate'])
+#     all_days = [
+#         timestamp_str(ts + DAY_SECONDS / 2)
+#         for ts in range(start_ts, end_ts, DAY_SECONDS)]
 
-    def collect_stats(data):
-        sets = collections.defaultdict(set)
-        for atime, user in data:
-            day_str = timestamp_str(atime)
-            sets[day_str].add(user)
-        counts = {}
-        for d in all_days:
-            counts[d] = len(sets[d])
-        return counts
+#     def collect_stats(data):
+#         sets = collections.defaultdict(set)
+#         for atime, user in data:
+#             day_str = timestamp_str(atime)
+#             sets[day_str].add(user)
+#         counts = {}
+#         for d in all_days:
+#             counts[d] = len(sets[d])
+#         return counts
 
-    actions = get_all_actions(config, db)
+#     actions = get_all_actions(config, db)
 
-    res_dict = {mname: collect_stats(mrs) for mname, mrs in matching_requests.items()}
-    for a in action:
-        assert any(res_dict[mname].values()), 'Empty %s' % mname
+#     res_dict = {mname: collect_stats(mrs) for mname, mrs in matching_requests.items()}
+#     for a in action:
+#         assert any(res_dict[mname].values()), 'Empty %s' % mname
 
-    res = [[d] + [res_dict[mname][d] for mname, _ in METRICS] for d in all_days]
-    csvo = csv.writer(sys.stdout)
-    csvo.writerows(res)
+#     res = [[d] + [res_dict[mname][d] for mname, _ in METRICS] for d in all_days]
+#     csvo = csv.writer(sys.stdout)
+#     csvo.writerows(res)
 
 
 @options([

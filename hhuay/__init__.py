@@ -4,28 +4,28 @@ from __future__ import unicode_literals
 
 import argparse
 import collections
-import io
 import json
-import re
 import sys
 import time
 
+
 from . import sources
-from . import actions
+
+from .sources import (
+    read_requestlog_all,
+)
 from .util import (
-    FileProgress,
-    extract_user_from_cookies,
     Option,
     options,
-    parse_date,
     read_config,
-    TableSizeProgressBar,
 )
 from .dbhelpers import (
     DBConnection,
 )
+
 from . import hhu_actions
 from . import actions_prepare
+from . import actions_sessions
 
 
 @options([
@@ -59,7 +59,6 @@ def action_file_listrequests(args):
         raise ValueError('No format specified')
     else:
         raise ValueError('Invalid list format %r' % format)
-
 
 
 @options([
@@ -119,181 +118,6 @@ def action_list_votes(args, config, db, wdb):
         print(v, )
 
 
-@options([
-    Option(
-        '--timeout',
-        dest='timeout',
-        help='Timeout in seconds',
-        type=int,
-        default=600)
-], requires_db=True)
-def action_assign_requestlog_sessions(args, config, db, wdb):
-    bar = TableSizeProgressBar(db, 'requestlog3', 'Assigning sessions')
-
-    wdb.execute('''DROP TABLE IF EXISTS analysis_session''')
-    wdb.execute('''CREATE TABLE analysis_session (
-        id int PRIMARY KEY auto_increment,
-        last_update_timestamp int
-    )''')
-
-    wdb.execute('''DROP TABLE IF EXISTS analysis_session_requests''')
-    wdb.execute('''CREATE TABLE analysis_session_requests (
-        session_id int,
-        request_id int
-    )''')
-
-    def write_session(s):
-        wdb.execute(
-            '''INSERT INTO analysis_session
-                SET last_update_timestamp=%s''', (s.time,))
-        session_id = db.lastrowid
-        assert session_id is not None
-        wdb.executemany(
-            '''INSERT INTO analysis_session_requests
-                SET session_id=%s, request_id=%s''',
-            [(session_id, rid) for rid in s.requests])
-        return session_id
-
-    class Session(object):
-        __slots__ = 'requests', 'time'
-
-        def __init__(self):
-            self.requests = []
-            self.time = None
-
-    last_id = -1
-    db.execute(
-        '''SELECT id, UNIX_TIMESTAMP(access_time) as time, ip_address, user_agent
-            FROM requestlog3 ORDER BY access_time ASC''')
-
-    # key is the tuple (ip_address, user_agent)
-    # value is a python  of (request_id, time) tuples
-    sessions = collections.defaultdict(Session)
-    STEP = 10000
-    atime = None
-    for idx, req in enumerate(db):
-        if idx % STEP == 1:
-            to_del = []
-            for key, s in sessions.items():
-                if s.time + args.timeout < atime:
-                    last_id = write_session(s)
-                    to_del.append(key)
-            for key in to_del:
-                del sessions[key]
-        bar.next()
-        request_id, atime, ip, ua = req
-        key = (ip, ua)
-        s = sessions[key]
-        if s.time is not None and s.time + args.timeout < atime:
-            last_id = write_session(s)
-            s = Session()
-            sessions[key] = s
-        s.requests.append(request_id)
-        s.time = atime
-
-    for s in sessions.values():
-        last_id = write_session(s)
-
-    print(
-        'Assigned %d sessions (timeout: %d)' %
-        (last_id, args.timeout))
-
-
-@options(requires_db=True)
-def action_annotate_requests(args, config, db, wdb):
-    """ Filter out the interesting requests to HTML pages and copy all the
-        information we got with them (for example duration) into one row"""
-
-    bar = TableSizeProgressBar(
-        db, 'requestlog3',
-        'Collecting request information')
-
-    wdb.execute('''DROP TABLE IF EXISTS analysis_request_annotations''')
-    wdb.execute('''CREATE TABLE analysis_request_annotations (
-        id int PRIMARY KEY auto_increment,
-        request_id int,
-        user_sid varchar(64),
-        duration int,
-        detail_json TEXT,
-        INDEX (request_id),
-        INDEX (user_sid)
-    )''')
-
-    class RequestInfo(object):
-        __slots__ = 'request_id', 'access_time', 'latest_update', 'user_sid'
-
-        def __init__(self, request_id, access_time, user_sid):
-            self.request_id = request_id
-            self.access_time = access_time
-            self.user_sid = user_sid
-            self.latest_update = None
-
-        def __str__(self):
-            return '%d %s' % (self.access_time, self.user_sid)
-
-    def write_request(key, ri):
-        ip, user_agent, request_url = key
-        wdb.execute(
-            '''INSERT INTO analysis_request_annotations
-                SET request_id=%s, user_sid=%s
-            ''', (ri.request_id, ri.user_sid))
-
-    # Key: (ip, user_agent, request_url), value: RequestInfo
-    requests = {}
-
-    is_stats = re.compile(r'/+(?:i/[^/]+/)?stats/')
-    is_static = re.compile(r'''(?x)
-        /favicon\.ico|
-        /images/|
-        /fanstatic/|
-        /stylesheets/|
-        /robots\.txt|
-        /javascripts|
-        # Technically not static, but very close
-        /admin|
-        /i/[^/]+/instance/[^/]+/settings
-    ''')
-
-    write_count = 0
-    db.execute(
-        '''SELECT id, access_time as atime,
-                  ip_address, user_agent, request_url, cookies
-            FROM requestlog3
-            ORDER BY access_time ASC
-            ''')
-    for req in db:
-        bar.next()
-        request_id, atime, ip, user_agent, request_url, cookies = req
-        if is_stats.match(request_url):
-            continue  # Skip for now
-        elif is_static.match(request_url):
-            continue  # Skip
-        assert '/stats' not in request_url
-        key = (ip, user_agent, request_url)
-        cur = requests.get(key)
-        if cur is not None:
-            write_request(key, cur)
-            del requests[key]
-            write_count += 1
-        user = extract_user_from_cookies(cookies, None)
-        requests[key] = RequestInfo(request_id, atime, user)
-    bar.finish()
-
-    print('Writing out %d requests (already wrote out %d inline) ...' % (
-        len(requests), write_count))
-    for key, ri in requests.items():
-        write_request(key, ri)
-
-    wdb.execute('''CREATE OR REPLACE VIEW requestlog4 AS
-        SELECT requestlog3.*,
-            analysis_request_annotations.user_sid as user_sid,
-            analysis_request_annotations.duration as duration,
-            analysis_request_annotations.detail_json as detail_json
-        FROM requestlog3, analysis_request_annotations
-        WHERE requestlog3.id = analysis_request_annotations.request_id
-    ''')
-
-
 def main():
     parser = argparse.ArgumentParser(description='Analyze adhocracy logs')
 
@@ -312,7 +136,7 @@ def main():
     glbls = dict(globals())
     glbls.update(hhu_actions.__dict__)
     glbls.update(actions_prepare.__dict__)
-    glbls.update(actions.__dict__)
+    glbls.update(actions_sessions.__dict__)
     all_actions = [a for name, a in sorted(glbls.items())
                    if name.startswith('action_')]
     for a in all_actions:
