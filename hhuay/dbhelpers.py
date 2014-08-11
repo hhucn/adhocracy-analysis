@@ -1,5 +1,6 @@
 import mysql.connector
 import mysql.connector.constants
+import re
 
 
 class DBConnection(object):
@@ -61,3 +62,12 @@ class DBConnection(object):
         """ 1 column query, return as a plain list """
         self.execute(sql, *args)
         return [r[0] for r in self]
+
+    def drop_table(self, tblname):
+        # No prepared statements, so lets be sure the table name is kosher
+        assert re.match(r'^[a-zA-Z_0-9]+$', tblname)
+        try:
+            self.execute('DROP TABLE IF EXISTS %s;' % tblname)
+        except mysql.connector.errors.DatabaseError as de:
+            if de.errno != 1051:  # Warning for table not found
+                raise

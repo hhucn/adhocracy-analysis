@@ -257,3 +257,14 @@ def get_all_actions(config, db):
             list(filter_config_dates(dbfunc(db), config)),
         )
         for mname, _, dbfunc in METRICS]
+
+
+def read_requestlog_all(args, **kwargs):
+    if args.files:
+        for fn in args.files:
+            with open(fn, 'rb') as inf:
+                for r in read_requestlog(inf, **kwargs):
+                    yield r
+    else:
+        for r in read_requestlog(sys.stdin.buffer, **kwargs):
+            yield r

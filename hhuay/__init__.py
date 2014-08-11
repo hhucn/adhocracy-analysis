@@ -25,17 +25,7 @@ from .dbhelpers import (
     DBConnection,
 )
 from . import hhu_actions
-
-
-def read_requestlog_all(args, **kwargs):
-    if args.files:
-        for fn in args.files:
-            with open(fn, 'rb') as inf:
-                for r in sources.read_requestlog(inf, **kwargs):
-                    yield r
-    else:
-        for r in sources.read_requestlog(sys.stdin.buffer, **kwargs):
-            yield r
+from . import actions_prepare
 
 
 @options([
@@ -48,7 +38,7 @@ def action_file_listrequests(args):
 
     format = args.format
     if format == 'repr':
-        for req in read_requestlog_all(args):
+        for req in sources.read_requestlog_all(args):
             print(req)
     elif format == 'json':
         l = [req._asdict() for req in read_requestlog_all(args)]
@@ -70,79 +60,6 @@ def action_file_listrequests(args):
     else:
         raise ValueError('Invalid list format %r' % format)
 
-
-@options([])
-def action_load_requestlog(args):
-    """ Load requestlog into the database """
-
-    if not args.discardfile:
-        raise ValueError('Must specify a discard file!')
-
-    config = read_config(args)
-
-    with io.open(args.discardfile, 'w', encoding='utf-8') as discardf, \
-            DBConnection(config) as db:
-
-        def discard(line):
-            discardf.write(line)
-
-        db.execute('''DROP TABLE IF EXISTS requestlog2;''')
-        db.execute('''CREATE TABLE requestlog2 (
-            id int PRIMARY KEY auto_increment,
-            access_time int,
-            ip_address varchar(255),
-            request_url text,
-            cookies text,
-            user_agent text,
-            deleted boolean NOT NULL,
-            method varchar(10));
-        ''')
-
-        for r in read_requestlog_all(args, discard=discard,
-                                     progressclass=FileProgress):
-            sql = '''INSERT INTO requestlog2
-                SET access_time = %s,
-                    ip_address = %s,
-                    request_url = %s,
-                    cookies = %s,
-                    user_agent = %s,
-                    method = %s;
-            '''
-            db.execute(
-                sql,
-                (r.time, r.ip, r.path, r.cookies, r.user_agent, r.method))
-        db.commit()
-
-
-@options([], requires_db=True)
-def action_cleanup_requestlog(args, config, db, wdb):
-    """ Remove unneeded requests, or ones we created ourselves """
-
-    try:
-        start_date = parse_date(config['startdate'])
-        end_date = parse_date(config['enddate'])
-    except KeyError as ke:
-        raise KeyError('Missing key %s in configuration' % ke.args[0])
-
-    wdb.execute(
-        '''UPDATE requestlog2 SET deleted=1
-            WHERE access_time < %s
-                  OR access_time > %s''',
-        (start_date, end_date))
-    wdb.commit()
-    print('Deleted %d rows due to date constraints' % wdb.affected_rows())
-
-    wdb.execute(
-        '''UPDATE requestlog2 SET deleted=1
-            WHERE user_agent RLIKE 'GoogleBot|Pingdom|ApacheBench|bingbot|YandexBot|SISTRIX Crawler'
-    ''')
-    wdb.commit()
-    print('Deleted %d rows due to UA constraints' % wdb.affected_rows())
-
-    wdb.execute(
-        '''CREATE OR REPLACE VIEW requestlog3 AS
-            SELECT * FROM requestlog2 WHERE NOT deleted''')
-    wdb.commit()
 
 
 @options([
@@ -394,6 +311,7 @@ def main():
         title='action', help='What to do', dest='action')
     glbls = dict(globals())
     glbls.update(hhu_actions.__dict__)
+    glbls.update(actions_prepare.__dict__)
     glbls.update(actions.__dict__)
     all_actions = [a for name, a in sorted(glbls.items())
                    if name.startswith('action_')]
