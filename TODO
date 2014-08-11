@@ -1,5 +1,4 @@
 classify each session as to what happened in any requests
-annotate requests (length, other params)
 -> see which users involved in a session
 	if one: done!
 	if none: anonymous
@@ -9,7 +8,6 @@ annotate requests (length, other params)
 
 session management
     associate sessions with users
-
 
 extract sessions
 Read user databases!
