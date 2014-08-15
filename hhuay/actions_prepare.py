@@ -94,8 +94,7 @@ def action_annotate_requests(args, config, db, wdb):
         db, 'analysis_requestlog_undeleted',
         'Collecting request information')
 
-    wdb.execute('''DROP TABLE IF EXISTS analysis_request_annotations''')
-    wdb.execute('''CREATE TABLE analysis_request_annotations (
+    wdb.recreate_table('analysis_request_annotations', '''
         id int PRIMARY KEY auto_increment,
         request_id int,
         user_sid varchar(64),
@@ -103,7 +102,7 @@ def action_annotate_requests(args, config, db, wdb):
         detail_json TEXT,
         INDEX (request_id),
         INDEX (user_sid)
-    )''')
+    ''')
 
     class RequestInfo(object):
         __slots__ = 'request_id', 'access_time', 'latest_update', 'user_sid'
@@ -150,11 +149,9 @@ def action_annotate_requests(args, config, db, wdb):
     for req in db:
         bar.next()
         request_id, atime, ip, user_agent, request_url, cookies = req
-        if is_stats.match(request_url):
-            continue  # Skip for now
-        elif is_static.match(request_url):
+        if is_static.match(request_url):
             continue  # Skip
-        assert '/stats' not in request_url
+        #assert '/stats' not in request_url
         key = (ip, user_agent, request_url)
         cur = requests.get(key)
         if cur is not None:
@@ -170,7 +167,7 @@ def action_annotate_requests(args, config, db, wdb):
     for key, ri in requests.items():
         write_request(key, ri)
 
-    wdb.execute('''CREATE OR REPLACE VIEW requestlog4 AS
+    wdb.execute('''CREATE OR REPLACE VIEW analysis_requestlog_combined AS
         SELECT analysis_requestlog_undeleted.*,
             analysis_request_annotations.user_sid as user_sid,
             analysis_request_annotations.duration as duration,

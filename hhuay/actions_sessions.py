@@ -21,17 +21,15 @@ def action_assign_requestlog_sessions(args, config, db, wdb):
     bar = TableSizeProgressBar(
         db, 'analysis_requestlog_undeleted', 'Assigning sessions')
 
-    wdb.execute('''DROP TABLE IF EXISTS analysis_session''')
-    wdb.execute('''CREATE TABLE analysis_session (
+    wdb.execute('analysis_session', '''
         id int PRIMARY KEY auto_increment,
         last_update_timestamp int
-    )''')
+    ''')
 
-    wdb.execute('''DROP TABLE IF EXISTS analysis_session_requests''')
-    wdb.execute('''CREATE TABLE analysis_session_requests (
+    wdb.recreate_table('analysis_session_requests', '''
         session_id int,
         request_id int
-    )''')
+    ''')
 
     def write_session(s):
         wdb.execute(
@@ -99,4 +97,22 @@ def action_assign_requestlog_sessions(args, config, db, wdb):
 def action_session_stats(args, config, db, wdb):
     """ Calculate some simple statistics about sessions """
 
+    wdb.execute('''CREATE OR REPLACE VIEW analysis_session_users AS
+        (SELECT DISTINCT
+            analysis_session_requests.session_id as session_id,
+            analysis_requestlog_combined.user_sid as user_sid
+            FROM analysis_requestlog_combined, analysis_session_requests
+            WHERE analysis_requestlog_combined.id = analysis_session_requests.request_id
+        )
+    ''')
+    wdb.commit()
+
+
+    # TODO average session length
+
+    # TODO calc users in sessions
+
+
     # TODO number of users per session (error correction)
+    # TODO number of sessions per user
+    # TODO calc session lengths

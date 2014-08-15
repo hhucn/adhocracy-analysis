@@ -6,7 +6,8 @@ session length per session / per user
 	if multiple: split session! (or filter out)
 
 
-do fun stuff with sessions
+do fun stuff with sessions 
+''
 first question: how many anonymous / not anonymous?
 how often do people use adhocracy?
 classify each session as to what happened in any requests

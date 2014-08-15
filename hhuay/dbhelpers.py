@@ -71,3 +71,8 @@ class DBConnection(object):
         except mysql.connector.errors.DatabaseError as de:
             if de.errno != 1051:  # Warning for table not found
                 raise
+
+    def recreate_table(self, tblname, columns_sql):
+        self.drop_table(tblname)
+        assert re.match(r'^[a-zA-Z_0-9]+$', tblname)
+        self.execute('CREATE TABLE %s (%s)' % (tblname, columns_sql))
