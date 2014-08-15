@@ -1,3 +1,7 @@
+# TODO session length
+	average
+	avg per user
+
 session length per session / per user
 
 -> see which users involved in a session
@@ -88,3 +92,4 @@ in config:
 	source: "mysql:"
 	dst: "mysql:..."
 
+analyse sessions where more than 1 user

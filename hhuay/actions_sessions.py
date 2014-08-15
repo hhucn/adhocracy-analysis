@@ -94,8 +94,8 @@ def action_assign_requestlog_sessions(args, config, db, wdb):
 
 
 @options([], requires_db=True)
-def action_session_stats(args, config, db, wdb):
-    """ Calculate some simple statistics about sessions """
+def action_session_user_stats(args, config, db, wdb):
+    """ Calculate some simple statistics about users of sessions """
 
     wdb.execute('''CREATE OR REPLACE VIEW analysis_session_users AS
         (SELECT DISTINCT
@@ -107,12 +107,18 @@ def action_session_stats(args, config, db, wdb):
     ''')
     wdb.commit()
 
+    # How many sessions did each user have?
+    wdb.execute('''CREATE OR REPLACE VIEW analysis_session_count_per_user AS (
+        SELECT
+            analysis_session_users.user_sid,
+            count(analysis_session_users.session_id)
+        FROM analysis_session_users, user
+        WHERE analysis_session_users.user_sid = user.user_name
+        GROUP BY analysis_session_users.user_sid
+    );''')
+    wdb.commit()
 
-    # TODO average session length
+    # TODO write this out to json?
+    # TODO plot this?
 
-    # TODO calc users in sessions
-
-
-    # TODO number of users per session (error correction)
-    # TODO number of sessions per user
-    # TODO calc session lengths
+    # TODO session length

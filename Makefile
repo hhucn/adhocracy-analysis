@@ -11,5 +11,6 @@ prepare:
 
 run: prepare
 	./ay list_uas --summarize > output/uas
+	./ay session_stats
 
 .PHONY: test
