@@ -36,12 +36,16 @@ from . import actions_sessions
 def action_file_listrequests(args):
     """ Output all HTTP requests """
 
+    def discard(entry):
+        sys.stderr.write('discarding line %s' % line)
+
+    src = read_requestlog_all(args, discard=discard)
     format = args.format
     if format == 'repr':
-        for req in sources.read_requestlog_all(args):
+        for req in src:
             print(req)
     elif format == 'json':
-        l = [req._asdict() for req in read_requestlog_all(args)]
+        l = [req._asdict() for req in src]
         info = {
             '_format': 'requestlist',
             'requests': l,
@@ -50,7 +54,7 @@ def action_file_listrequests(args):
         print()  # Output a final newline
     elif format == 'benchmark':
         start_time = time.clock()
-        count = sum(1 for _ in read_requestlog_all(args))
+        count = sum(1 for _ in src)
         end_time = time.clock()
         print(
             'Read %d requests in %d seconds (%d requests/s)' %

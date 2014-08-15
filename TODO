@@ -1,8 +1,19 @@
-classify each session as to what happened in any requests
+session length per session / per user
+
 -> see which users involved in a session
 	if one: done!
 	if none: anonymous
 	if multiple: split session! (or filter out)
+
+
+do fun stuff with sessions
+first question: how many anonymous / not anonymous?
+how often do people use adhocracy?
+classify each session as to what happened in any requests
+
+
+
+
 
 
 
@@ -28,10 +39,6 @@ filter out our devs
 Email bounce / Out of office stats?
 Show status (if possible)
 
-
-
-try saving requests as protobuf
-write load_requests to load data from apache log
 
 does setting a password correlate with user activity, user platform, status group, faculty?
 performance correlate
