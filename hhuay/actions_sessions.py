@@ -118,6 +118,8 @@ def action_session_user_stats(args, config, db, wdb):
     );''')
     wdb.commit()
 
+    
+
     # TODO write this out to json?
     # TODO plot this?
 

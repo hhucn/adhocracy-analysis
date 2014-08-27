@@ -26,6 +26,7 @@ from .dbhelpers import (
 from . import hhu_actions
 from . import actions_prepare
 from . import actions_sessions
+from . import actions_misc
 
 
 @options([
@@ -141,6 +142,7 @@ def main():
     glbls.update(hhu_actions.__dict__)
     glbls.update(actions_prepare.__dict__)
     glbls.update(actions_sessions.__dict__)
+    glbls.update(actions_misc.__dict__)
     all_actions = [a for name, a in sorted(glbls.items())
                    if name.startswith('action_')]
     for a in all_actions:
