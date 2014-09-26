@@ -4,6 +4,7 @@ from .util import (
     options,
     Option,
     parse_date,
+    sql_filter,
     TableSizeProgressBar,
 )
 
@@ -33,14 +34,25 @@ def action_basicfacts(args, config, db, wdb):
     ''')[0]
     print('%d page loads' % nonstat_request_count)
 
-    # TODO exclude proposals by admin and deleted
+    time_q = "create_time >= FROM_UNIXTIME(%d) AND create_time <= FROM_UNIXTIME(%d)" % (
+        start_date, end_date)
+    # 1 = admin (i.e. created by us)
+    where_q = ' WHERE creator_id != 1 AND delete_time IS NULL AND ' + time_q + sql_filter('proposal', config)
+    proposal_count = db.simple_query(
+        'SELECT COUNT(*) FROM delegateable' + where_q + ' AND type="proposal"')[0]
+    print('%d proposals' % proposal_count)
 
-    #print('%d proposals' % proposal_count)
+    where_q = ' WHERE creator_id != 1 AND delete_time IS NULL AND ' + time_q + sql_filter('comment', config)
+    comment_count = db.simple_query(
+        'SELECT COUNT(*) FROM comment ' + where_q)[0]
+    print('%d comments' % comment_count)
 
-    # vote_count = 
-    #print('%d votes' % nonstat_request_count)
+    where_q = ' WHERE user_id != 1 AND ' + time_q + sql_filter('vote', config)
+    raw_vote_count = db.simple_query(
+        'SELECT COUNT(*) FROM vote ' + where_q)[0]
+    print('%d votes' % raw_vote_count)
 
-    # TODO votes
-
-    # TODO # votes
-    # TODO # comments
+    where_q = ' WHERE user_id != 1 AND ' + time_q + sql_filter('vote', config)
+    vote_count = db.simple_query(
+        'SELECT COUNT(DISTINCT user_id, poll_id) FROM vote ' + where_q)[0]
+    print('%d votings' % vote_count)

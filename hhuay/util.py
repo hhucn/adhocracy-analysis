@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+
 import calendar
 import collections
 import contextlib
@@ -202,3 +204,10 @@ def extract_user_from_cookies(cookies, default=None):
     if m:
         return m.group(1)
     return default
+
+
+def sql_filter(name, config):
+    filter_sql = config.get('%s_extra_filter' % name)
+    if filter_sql:
+        return filter_sql
+    return ''
