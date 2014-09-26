@@ -27,6 +27,7 @@ from . import hhu_actions
 from . import actions_prepare
 from . import actions_sessions
 from . import actions_misc
+from . import actions_ipppaper
 
 
 @options([
@@ -143,6 +144,7 @@ def main():
     glbls.update(actions_prepare.__dict__)
     glbls.update(actions_sessions.__dict__)
     glbls.update(actions_misc.__dict__)
+    glbls.update(actions_ipppaper.__dict__)
     all_actions = [a for name, a in sorted(glbls.items())
                    if name.startswith('action_')]
     for a in all_actions:
@@ -157,7 +159,7 @@ def main():
 
     args = parser.parse_args()
     if not args.action:
-        parser.error(u'No action specified')
+        parser.error('No action specified')
 
     action = glbls['action_' + args.action]
     action_id = 'action_' + args.action + '_'

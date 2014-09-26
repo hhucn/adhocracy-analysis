@@ -93,7 +93,7 @@ class Option(object):
         self.kwargs = kwargs
 
 
-def options(option_list=[], requires_db=False):
+def options(option_list=[], requires_db=True):
     def wrapper(func):
         def outfunc(args):
             if requires_db:
