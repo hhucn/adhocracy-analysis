@@ -1,5 +1,4 @@
-basicfacts
-
+user classification
 vote change counts
 
 number of sessions per user
@@ -98,3 +97,25 @@ in config:
 	dst: "mysql:..."
 
 analyse sessions where more than 1 user
+
+
+
+Im Paper
+
+Fußnote Facebook devices
+state
+session-Länge
+
+0. motivation
+1. related work statt past projects
+2. basic facts
+	-> ernsthaftes Projekt
+	-> Realwelt-Konsequenzen
+3. poweruser/user
+4.
+Pfade
+technische Details (connection speed, DNS ..., Browser)
+edits
+5. Ausblick
+
+Find better session length; check how many sessions we would have for which cutoff

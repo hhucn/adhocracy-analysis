@@ -8,6 +8,7 @@ from .util import (
     FileProgress,
     options,
     parse_date,
+    sql_filter,
     TableSizeProgressBar,
 )
 from .sources import read_requestlog_all
@@ -175,3 +176,32 @@ def action_annotate_requests(args, config, db, wdb):
         FROM analysis_requestlog_undeleted, analysis_request_annotations
         WHERE analysis_requestlog_undeleted.id = analysis_request_annotations.request_id
     ''')
+
+
+@options()
+def action_user_classification(args, config, db, wdb):
+    start_date = parse_date(config['startdate'])
+    end_date = parse_date(config['enddate'])
+
+    time_q = "create_time >= FROM_UNIXTIME(%d) AND create_time <= FROM_UNIXTIME(%d)" % (
+        start_date, end_date)
+
+    # 1 = admin (i.e. created by us)
+    where_q = ' WHERE creator_id != 1 AND delete_time IS NULL AND ' + time_q + sql_filter('proposal', config)
+    proposal_authors = db.simple_query(
+        'SELECT COUNT(delegateable.id) FROM delegateable' + where_q + ' AND type="proposal"')[0]
+
+    where_q = ' WHERE creator_id != 1 AND delete_time IS NULL AND ' + time_q + sql_filter('comment', config)
+    comment_count = db.simple_query(
+        'SELECT COUNT(*) FROM comment ' + where_q)[0]
+    print('%d comments' % comment_count)
+
+    where_q = ' WHERE user_id != 1 AND ' + time_q + sql_filter('vote', config)
+    raw_vote_count = db.simple_query(
+        'SELECT COUNT(*) FROM vote ' + where_q)[0]
+    print('%d votes' % raw_vote_count)
+
+    where_q = ' WHERE user_id != 1 AND ' + time_q + sql_filter('vote', config)
+    vote_count = db.simple_query(
+        'SELECT COUNT(DISTINCT user_id, poll_id) FROM vote ' + where_q)[0]
+    print('%d votings' % vote_count)
