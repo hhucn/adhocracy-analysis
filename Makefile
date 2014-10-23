@@ -5,6 +5,12 @@ test:
 import:
 	./ay load_requestlog input/access_log_adhocracy --discard output/discards
 
+dependencies:
+	# Check for python
+	python -c 0 > /dev/null
+
+	pip3 install --user pygeoip
+
 prepare:
 	./ay cleanup_requestlog
 	./ay annotate_requests

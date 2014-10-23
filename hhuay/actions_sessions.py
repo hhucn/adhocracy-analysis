@@ -6,6 +6,7 @@ from .util import (
     options,
     Option,
     TableSizeProgressBar,
+    GeoDb,
 )
 
 
@@ -111,16 +112,26 @@ def action_session_user_stats(args, config, db, wdb):
     wdb.execute('''CREATE OR REPLACE VIEW analysis_session_count_per_user AS (
         SELECT
             analysis_session_users.user_sid,
-            count(analysis_session_users.session_id)
+            count(analysis_session_users.session_id) as session_count
         FROM analysis_session_users, user
         WHERE analysis_session_users.user_sid = user.user_name
         GROUP BY analysis_session_users.user_sid
     );''')
     wdb.commit()
 
-    
+    user_ids = db.simple_query('SELECT user_sid FROM analysis_session_users')
+    sessions_per_user = collections.Counter(user_ids)
 
+    write_data('user_sessions', {
+        'data': sessions_per_user.most_common(),
+    })
+
+    # How many anonymous sessions
     # TODO write this out to json?
     # TODO plot this?
-
     # TODO session length
+
+@options()
+def action_session_locations(args, config, db, wdb):
+    gd = GeoDb()
+    print(gd.record_by_addr('134.99.1.1'))

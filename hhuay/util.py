@@ -6,15 +6,22 @@ import contextlib
 import datetime
 import io
 import json
-import os.path
+import gzip
+import os
 import re
 import sys
 import time
 
 import progress.bar
 
-from .compat import compat_str
+from .compat import (
+    compat_str,
+    compat_urllib_request,
+)
 from .dbhelpers import DBConnection
+
+
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class keydefaultdict(collections.defaultdict):
@@ -211,3 +218,47 @@ def sql_filter(name, config):
     if filter_sql:
         return filter_sql
     return ''
+
+
+def write_data(name, data):
+    assert isinstance(name, compat_str)
+    fn = os.path.join(ROOT_DIR, 'output', name + '.json')
+    with open(fn, 'wb') as f:
+        f.write(json.dumps(data, indent=2).encode('utf-8'))
+
+
+def tmp_dir():
+    tmp_dir = os.path.join(ROOT_DIR, 'tmp')
+    if not os.path.exists(tmp_dir):
+        os.mkdir(tmp_dir)
+    return tmp_dir
+
+
+def download_tmp(url):
+    """ Returns the filename of the downloaded resource """
+    localname = url.partition('?')[0].rstrip('/').rpartition('/')[-1]
+    fn = os.path.join(tmp_dir(), localname)
+    if os.path.exists(fn):
+        return fn
+    partfn = fn + '.part'
+    sys.stderr.write('Downloading %s ..' % url)
+    sys.stderr.flush()
+    compat_urllib_request.urlretrieve(url, partfn)
+    sys.stderr.write('. Done.\n')
+    sys.stderr.flush()
+    os.rename(partfn, fn)
+    return fn
+
+
+def GeoDb():
+    import pygeoip
+    geodb_fn_gz = download_tmp(
+        'http://geolite.maxmind.com/download/geoip/database/'
+        'GeoLiteCity.dat.gz')
+    assert geodb_fn_gz.endswith('.gz')
+    geodb_fn = geodb_fn_gz[:-len('.gz')]
+    if not os.path.exists(geodb_fn):
+        with gzip.open(geodb_fn_gz, 'rb') as gzf, open(geodb_fn, 'wb') as outf:
+            outf.write(gzf.read())
+    return pygeoip.GeoIP(geodb_fn)
+
