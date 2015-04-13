@@ -10,6 +10,7 @@ dependencies:
 	python -c 0 > /dev/null
 
 	pip3 install --user pygeoip
+	pip3 install --user matplotlib
 
 prepare:
 	./ay cleanup_requestlog

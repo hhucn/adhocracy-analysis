@@ -7,6 +7,7 @@ from .util import (
     Option,
     TableSizeProgressBar,
     GeoDb,
+    write_data,
 )
 
 
@@ -16,13 +17,13 @@ from .util import (
         dest='timeout',
         help='Timeout in seconds',
         type=int,
-        default=600)
+        default=60 * 90)
 ], requires_db=True)
 def action_assign_requestlog_sessions(args, config, db, wdb):
     bar = TableSizeProgressBar(
         db, 'analysis_requestlog_undeleted', 'Assigning sessions')
 
-    wdb.execute('analysis_session', '''
+    wdb.recreate_table('analysis_session', '''
         id int PRIMARY KEY auto_increment,
         last_update_timestamp int
     ''')
@@ -121,15 +122,20 @@ def action_session_user_stats(args, config, db, wdb):
 
     user_ids = db.simple_query('SELECT user_sid FROM analysis_session_users')
     sessions_per_user = collections.Counter(user_ids)
+    sessions_per_user['anonymous'] = sessions_per_user[None]
+    del sessions_per_user[None]
 
-    write_data('user_sessions', {
-        'data': sessions_per_user.most_common(),
+    write_data('user_session_counts', {
+        'data': dict(sessions_per_user.most_common()),
+    })
+    reverse_counts = collections.Counter(
+        sessions_per_user.values()).most_common()
+    write_data('user_session_counts_reverse', {
+        'data': list(reverse_counts),
     })
 
-    # How many anonymous sessions
-    # TODO write this out to json?
-    # TODO plot this?
     # TODO session length
+
 
 @options()
 def action_session_locations(args, config, db, wdb):

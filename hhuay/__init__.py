@@ -29,6 +29,7 @@ from . import actions_sessions
 from . import actions_misc
 from . import actions_ipppaper
 from . import actions_tobias_export
+from . import actions_plot
 
 
 @options([
@@ -145,6 +146,7 @@ def main():
     glbls.update(actions_prepare.__dict__)
     glbls.update(actions_sessions.__dict__)
     glbls.update(actions_misc.__dict__)
+    glbls.update(actions_plot.__dict__)
     glbls.update(actions_ipppaper.__dict__)
     glbls.update(actions_tobias_export.__dict__)
     all_actions = [a for name, a in sorted(glbls.items())

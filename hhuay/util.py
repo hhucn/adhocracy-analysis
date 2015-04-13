@@ -227,6 +227,13 @@ def write_data(name, data):
         f.write(json.dumps(data, indent=2).encode('utf-8'))
 
 
+def read_data(name):
+    assert isinstance(name, compat_str)
+    fn = os.path.join(ROOT_DIR, 'output', name + '.json')
+    with io.open(fn, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
 def tmp_dir():
     tmp_dir = os.path.join(ROOT_DIR, 'tmp')
     if not os.path.exists(tmp_dir):
@@ -261,4 +268,3 @@ def GeoDb():
         with gzip.open(geodb_fn_gz, 'rb') as gzf, open(geodb_fn, 'wb') as outf:
             outf.write(gzf.read())
     return pygeoip.GeoIP(geodb_fn)
-
