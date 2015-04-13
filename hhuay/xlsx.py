@@ -27,6 +27,11 @@ def write_row(worksheet, row_num, values, column_offset=0):
         worksheet.write(row_num, i, v)
 
 
+def write_rows(worksheet, rows, row_offset=1, column_offset=0):
+    for row_num, row in enumerate(rows, start=row_offset):
+        write_row(worksheet, row_num, row, column_offset=column_offset)
+
+
 def gen_doc(fn, worksheet_names,
             props={
                 'author': 'Philipp Hagemeister',

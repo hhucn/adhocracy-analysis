@@ -17,7 +17,7 @@ from .util import (
         dest='timeout',
         help='Timeout in seconds',
         type=int,
-        default=60 * 90)
+        default=60 * 60)
 ], requires_db=True)
 def action_assign_requestlog_sessions(args, config, db, wdb):
     bar = TableSizeProgressBar(
