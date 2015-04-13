@@ -6,3 +6,9 @@ input/
 output/
 .cache/
 
+tmp
+.~lock*
+tobias.notes
+tobias.pdf
+tobias.xlsx
+
