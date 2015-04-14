@@ -18,7 +18,8 @@ from . import xlsx
 
 
 User = collections.namedtuple(
-    'User', ['id', 'textid', 'name', 'gender', 'badges'])
+    'User',
+    ['id', 'textid', 'name', 'gender', 'badges', 'proposal_sort_order'])
 
 
 def _format_timestamp(ts):
@@ -78,12 +79,13 @@ def read_users(db):
         user.id,
         user.user_name,
         user.display_name,
-        user.gender
+        user.gender,
+        user.proposal_sort_order
     FROM user
     WHERE %s
     ORDER BY id;''' % user_filter)
     users = {
-        row[0]: User(row[0], row[1], row[2], row[3], set())
+        row[0]: User(row[0], row[1], row[2], row[3], set(), row[4])
         for row in db
     }
 
@@ -271,12 +273,11 @@ def export_sessions(args, ws, db):
         'SessionStart_Date', 'SessionStart', 'SessionEnd_Date', 'SessionEnd',
         'SessionDuration',
         'NavigationCount', 'VotedCount', 'CommentsWritten', 'CommentsLength',
+        'StandardSortOrder',
 
-        # TODO StandardSortOrder
         # TODO Resorted
 
         # TODO? Per-proposal results
-
     ] + USER_HEADER
     ws.write_header(headers)
 
@@ -310,6 +311,10 @@ def export_sessions(args, ws, db):
             ui = None
             user_row = ['anonymous']
 
+        standard_sort_order = None
+        if ui:
+            standard_sort_order = ui.proposal_sort_order
+
         row = [
             s.id,
             'external' if _is_external(s.requests[0].ip) else 'university',
@@ -325,6 +330,7 @@ def export_sessions(args, ws, db):
             vote_count(s),
             len(comments),
             sum(len(c.text) for c in comments),
+            standard_sort_order,
         ] + user_row
         ws.write_row(row_num, row)
 
