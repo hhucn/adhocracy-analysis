@@ -276,7 +276,7 @@ def read_comments(db):
 
 
 Proposal = collections.namedtuple(
-    'Proposal', ['id', 'title', 'visible', 'instance'])
+    'Proposal', ['id', 'title', 'visible', 'instance', 'create_time'])
 
 
 def read_proposals(db):
@@ -284,23 +284,32 @@ def read_proposals(db):
         proposal.id,
         delegateable.label,
         delegateable.delete_time,
-        instance.key
+        instance.key,
+        UNIX_TIMESTAMP(delegateable.create_time)
     FROM proposal, delegateable, instance
     WHERE proposal.id = delegateable.id AND
           delegateable.instance_id = instance.id
+    ORDER BY delegateable.create_time ASC
     ''')
     proposals = []
     for row in db:
-        proposal_id, title, delete_time, instance_key = row
+        proposal_id, title, delete_time, instance_key, create_time = row
         visible = 1 if delete_time is None else 0
-        proposals.append(Proposal(proposal_id, title, visible, instance_key))
+        proposals.append(Proposal(
+            proposal_id, title, visible, instance_key, create_time))
     return proposals
 
 
 def export_proposals(ws, db):
-    ws.write_header(['id', 'visible', 'instance', 'title'])
+    ws.write_header(['id', 'visible', 'instance', 'created', 'title'])
     proposals = read_proposals(db)
-    ws.write_rows([[p.id, p.visible, p.instance, p.title] for p in proposals])
+    ws.write_rows([[
+        p.id,
+        p.visible,
+        p.instance,
+        _format_timestamp(p.create_time),
+        p.title
+    ] for p in proposals])
 
 
 def export_sessions(args, ws, db):
@@ -324,7 +333,12 @@ def export_sessions(args, ws, db):
     ]
     if args.include_proposals:
         for i, p in enumerate(proposals):
-            proposal_templates = ['V%d_ID', 'V%d_Name', 'V%d_Active']
+            proposal_templates = [
+                'V%d_ID',
+                'V%d_Name',
+                'V%d_Active',
+                'V%d_Created',
+            ]
             headers += [h % i for h in proposal_templates]
     headers += USER_HEADER
     ws.write_header(headers)
@@ -368,6 +382,7 @@ def export_sessions(args, ws, db):
                     p.id,
                     p.title,
                     p.visible,
+                    p.create_time,
                 ])
 
         row = [
