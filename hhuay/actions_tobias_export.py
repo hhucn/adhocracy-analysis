@@ -56,6 +56,47 @@ class IPAnonymizer(object):
         return s
 
 
+proposal_rex = re.compile(r'''(?x)^
+    (?:
+        (?P<is_stats>
+            (?:/i/[a-z]+)?
+            /stats/on_page\?
+            page=https%3A%2F%2Fnormsetzung.cs.uni-duesseldorf.de%2Fi%2F[a-z]+%2Fproposal%2F
+        )|
+        /i/[a-z]+/proposal/
+    )
+    (?P<proposal_id>[0-9]+)
+    -.*
+''')
+
+
+class ViewStats(object):
+    __slots__ = (
+        'request_timestamps',
+        'duration',
+    )
+
+    def __init__(self):
+        self.request_timestamps = []
+        self.duration = 0
+
+
+def calc_view_stats(session):
+    by_proposal = collections.defaultdict(ViewStats)
+    for r in session.requests:
+        m = proposal_rex.match(r.request_url)
+        if not m:
+            continue
+        proposal_id = int(m.group('proposal_id'))
+        vdata = by_proposal[proposal_id]
+        if not m.group('is_stats') or not vdata.request_timestamps:
+            vdata.request_timestamps.append(r.access_time)
+        vdata.duration = max(
+            vdata.duration, r.access_time - vdata.request_timestamps[0])
+
+    return by_proposal
+
+
 def _is_external(ip):
     return not (ip.startswith('134.99.') or ip.startswith('134.94.'))
 
@@ -338,6 +379,18 @@ def export_sessions(args, ws, db):
                 'V%d_Name',
                 'V%d_Active',
                 'V%d_Created',
+                'V%d_RequestTimestamps',
+                'V%d_Duration',
+                # V#_Voted
+                # V#_CommentsRead
+                # V#_ChangedVote
+                # V#_RatedCommentCount
+                # V#_CommentsWritten
+                # V#_CommentsWrittenLength
+                # V#_WasReadAfterRequest
+                # V#_CommentCountOnAccess
+                # V#_CommentProposalSizeOnAccesV#_ProVotesOnAccess
+                # V#_ContraVotesOnAccess
             ]
             headers += [h % i for h in proposal_templates]
     headers += USER_HEADER
@@ -377,6 +430,7 @@ def export_sessions(args, ws, db):
 
         proposals_row = []
         if args.include_proposals:
+            view_stats = calc_view_stats(s)
             for p in proposals:
                 proposals_row.extend([
                     p.id,
@@ -384,6 +438,14 @@ def export_sessions(args, ws, db):
                     p.visible,
                     p.create_time,
                 ])
+                if p.id in view_stats:
+                    vs = view_stats[p.id]
+                    proposals_row.extend([
+                        json.dumps(vs.request_timestamps),
+                        vs.duration,
+                    ])
+                else:
+                    proposals_row.extend([None] * 2)
 
         row = [
             s.id,
