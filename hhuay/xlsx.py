@@ -22,6 +22,15 @@ def write_heading_range(worksheet, title, row, col, width, height=1):
         worksheet._fbc_formats['heading_range'])
 
 
+def write_cell_range(worksheet, value, row, col, width, height=1):
+    import xlsxwriter.utility
+    range_start = xlsxwriter.utility.xl_rowcol_to_cell(row, col)
+    range_end = xlsxwriter.utility.xl_rowcol_to_cell(
+        row + height - 1, col + width - 1)
+    worksheet.merge_range(
+        '%s:%s' % (range_start, range_end), value)
+
+
 def write_row(worksheet, row_num, values, column_offset=0):
     for i, v in enumerate(values, start=column_offset):
         worksheet.write(row_num, i, v)
