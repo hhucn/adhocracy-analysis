@@ -3,6 +3,8 @@ from __future__ import unicode_literals
 import collections
 import itertools
 import json
+import re
+import time
 
 from .util import (
     options,
@@ -13,6 +15,11 @@ from . import xlsx
 
 
 User = collections.namedtuple('User', ['id', 'name', 'gender', 'badges'])
+
+
+def _format_timestamp(ts):
+    st = time.gmtime(ts)
+    return time.strftime('%Y-%m-%d %H:%M:%S', st)
 
 
 class IPAnonymizer(object):
@@ -37,6 +44,18 @@ class IPAnonymizer(object):
 
 def _is_external(ip):
     return not (ip.startswith('134.99.') or ip.startswith('134.94.'))
+
+
+def _request_counter(rex):
+    re_obj = re.compile(rex)
+
+    def count(session):
+        return sum(
+            1 for r in session.requests
+            if '/stats/' not in r.request_url and
+               re_obj.match(r.request_url) is not None)
+
+    return count
 
 
 USER_HEADER = [
@@ -104,63 +123,76 @@ def export_users(ws, db):
 
 
 Session = collections.namedtuple('Session', ['id', 'requests'])
-Request = collections.namedtuple('Request', ['id', 'ip'])
+Request = collections.namedtuple('Request', [
+    'id', 'ip', 'access_time', 'request_url', 'user_agent'])
 
 
 def read_sessions(db):
-    limit = 'analysis_session.id < 100'
     sessions = {}
-    db.execute('''SELECT
-        analysis_session.id
-    FROM analysis_session
-    WHERE %s
-    ORDER BY id;''' % limit)
-    for row in db:
-        session_id, = row
-        sessions[session_id] = Session(session_id, [])
-
-    print('Running request ...')
+    print('Running SQL request ...')
     db.execute('''SELECT
         analysis_session.id,
-        analysis_requestlog_undeleted.id,
-        analysis_requestlog_undeleted.ip_address
+        analysis_requestlog_combined.id,
+        analysis_requestlog_combined.ip_address,
+        analysis_requestlog_combined.access_time,
+        analysis_requestlog_combined.request_url,
+        analysis_requestlog_combined.user_agent
     FROM
         analysis_session,
         analysis_session_requests,
-        analysis_requestlog_undeleted
+        analysis_requestlog_combined
     WHERE
-        %s AND
+        analysis_session.id < 100 AND
         analysis_session.id = analysis_session_requests.session_id AND
-        analysis_requestlog_undeleted.id = analysis_session_requests.request_id
-    ORDER BY analysis_session.id
-    ;''' % limit)
+        analysis_requestlog_combined.id = analysis_session_requests.request_id
+    ORDER BY analysis_session.id, analysis_requestlog_combined.id
+    ;''')
     print('Collecting data ...')
 
     for row in db:
-        session_id, request_id, ip = row
-        req = Request(request_id, ip)
+        session_id = row[0]
+        if session_id not in sessions:
+            sessions[session_id] = Session(session_id, [])
+
+        req = Request(*row[1:])
         sessions[session_id].requests.append(req)
 
-    for s in sessions.values():
-        assert len(s.requests) > 0, s
-
-    return sessions
+    return [
+        s for s in sessions.values()
+        if not any('/admin/' in r.request_url for r in s.requests)]
 
 
 def export_sessions(ws, db):
-    headers = ['SessionId', 'AccessFrom'] + USER_HEADER
+    headers = [
+        'SessionId', 'AccessFrom', 'Anonymized IP Address', 'Device Type',
+        'LoginFailures',
+        'SessionStart_Date', 'SessionStart', 'SessionEnd_Date', 'SessionEnd',
+        'SessionDuration',
+        'NavigationCount',
+
+    ] + USER_HEADER
     ws.write_header(headers)
 
     users = read_users(db)
     sessions = read_sessions(db)
     ipa = IPAnonymizer()
 
-    sorted_sessions = sorted(sessions.values(), key=lambda s: s.id)
+    sorted_sessions = sorted(sessions, key=lambda s: s.id)
+    login_failures = _request_counter(r'/+post_login\?_login_tries=0')
+    navigation_count = _request_counter('/')
     for row_num, s in enumerate(sorted_sessions, start=1):
         row = [
             s.id,
             'external' if _is_external(s.requests[0].ip) else 'university',
             ipa(s.requests[0].ip),
+            'mobile' if 'mobile' in s.requests[0].user_agent else 'regular',
+            login_failures(s),
+            _format_timestamp(s.requests[0].access_time),
+            s.requests[0].access_time,
+            _format_timestamp(s.requests[-1].access_time),
+            s.requests[-1].access_time,
+            s.requests[-1].access_time - s.requests[0].access_time,
+            navigation_count(s),
         ]
         ws.write_row(row_num, row)
 
