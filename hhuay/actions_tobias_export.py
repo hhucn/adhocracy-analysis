@@ -275,20 +275,37 @@ def read_comments(db):
     return res
 
 
+Proposal = collections.namedtuple(
+    'Proposal', ['id', 'title', 'visible', 'instance'])
+
+
+def read_proposals(db):
+    db.execute('''SELECT
+        proposal.id,
+        delegateable.label,
+        delegateable.delete_time,
+        instance.key
+    FROM proposal, delegateable, instance
+    WHERE proposal.id = delegateable.id AND
+          delegateable.instance_id = instance.id
+    ''')
+    proposals = []
+    for row in db:
+        proposal_id, title, delete_time, instance_key = row
+        visible = 1 if delete_time is None else 0
+        proposals.append(Proposal(proposal_id, title, visible, instance_key))
+    return proposals
+
+
+def export_proposals(ws, db):
+    ws.write_header(['id', 'visible', 'instance', 'title'])
+    proposals = read_proposals(db)
+    ws.write_rows([[p.id, p.visible, p.instance, p.title] for p in proposals])
+
+
 def export_sessions(args, ws, db):
-    headers = [
-        'SessionId', 'AccessFrom', 'Anonymized IP Address', 'Device Type',
-        'LoginFailures',
-        'SessionStart_Date', 'SessionStart', 'SessionEnd_Date', 'SessionEnd',
-        'SessionDuration',
-        'NavigationCount', 'VotedCount', 'CommentsWritten', 'CommentsLength',
-        'StandardSortOrder', 'Resorted (JSON)',
-
-        # TODO? Per-proposal results
-    ] + USER_HEADER
-    ws.write_header(headers)
-
     print('Reading database')
+    proposals = read_proposals(db)
     users = read_users(db)
     all_comments = read_comments(db)
 
@@ -296,6 +313,21 @@ def export_sessions(args, ws, db):
     ipa = IPAnonymizer()
 
     print('Processing sessions ...')
+
+    headers = [
+        'SessionId', 'AccessFrom', 'Anonymized IP Address', 'Device Type',
+        'LoginFailures',
+        'SessionStart_Date', 'SessionStart', 'SessionEnd_Date', 'SessionEnd',
+        'SessionDuration',
+        'NavigationCount', 'VotedCount', 'CommentsWritten', 'CommentsLength',
+        'StandardSortOrder', 'Resorted (JSON)',
+    ]
+    if args.include_proposals:
+        for i, p in enumerate(proposals):
+            proposal_templates = ['V%d_ID', 'V%d_Name', 'V%d_Active']
+            headers += [h % i for h in proposal_templates]
+    headers += USER_HEADER
+    ws.write_header(headers)
 
     login_failures = _request_counter(r'/+post_login\?_login_tries=0')
     navigation_count = _request_counter(r'/')
@@ -329,6 +361,15 @@ def export_sessions(args, ws, db):
             if m:
                 resorted.append(SORTORDER_MAP[m.group(1)])
 
+        proposals_row = []
+        if args.include_proposals:
+            for p in proposals:
+                proposals_row.extend([
+                    p.id,
+                    p.title,
+                    p.visible,
+                ])
+
         row = [
             s.id,
             'external' if _is_external(s.requests[0].ip) else 'university',
@@ -346,7 +387,7 @@ def export_sessions(args, ws, db):
             sum(len(c.text) for c in comments),
             standard_sort_order,
             json.dumps(resorted) if resorted else None,
-        ] + user_row
+        ] + proposals_row + user_row
         ws.write_row(row_num, row)
 
 
@@ -360,12 +401,18 @@ def export_sessions(args, ws, db):
     dest='timeout',
     help='Session timeout in seconds',
     type=int,
-    default=60 * 60)
-])
+    default=60 * 60
+), Option(
+    '--include-proposals',
+    dest='include_proposals',
+    action='store_true',
+    help='Include proposals in session table',
+)])
 def action_tobias_export(args, config, db, wdb):
-    book = xlsx.gen_doc(args.out_fn, ['Sessions', 'Benutzer'])
+    book = xlsx.gen_doc(args.out_fn, ['Sessions', 'Benutzer', 'Proposals'])
 
     export_sessions(args, book.worksheets_objs[0], db)
     export_users(book.worksheets_objs[1], db)
+    export_proposals(book.worksheets_objs[2], db)
 
     book.close()
