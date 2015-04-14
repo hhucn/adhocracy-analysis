@@ -16,6 +16,15 @@ from .util import (
 )
 from . import xlsx
 
+SORTORDER_MAP = {
+    '1': '-create_time',
+    '2': 'order.title',
+    '3': '-order.proposal.controversy',
+    '4': '-order.proposal.mixed',
+    '5': '-order.newestcomment',
+    '6': '-order.proposal.support',
+}
+
 
 User = collections.namedtuple(
     'User',
@@ -273,9 +282,7 @@ def export_sessions(args, ws, db):
         'SessionStart_Date', 'SessionStart', 'SessionEnd_Date', 'SessionEnd',
         'SessionDuration',
         'NavigationCount', 'VotedCount', 'CommentsWritten', 'CommentsLength',
-        'StandardSortOrder',
-
-        # TODO Resorted
+        'StandardSortOrder', 'Resorted (JSON)',
 
         # TODO? Per-proposal results
     ] + USER_HEADER
@@ -293,6 +300,7 @@ def export_sessions(args, ws, db):
     login_failures = _request_counter(r'/+post_login\?_login_tries=0')
     navigation_count = _request_counter(r'/')
     vote_count = _request_counter(r'/.*/rate\.')
+    proposal_sort_order_re = re.compile(r'&proposals_sort=([0-9]+)')
 
     for row_num, s in enumerate(sessions, start=1):
         comments = []
@@ -315,6 +323,12 @@ def export_sessions(args, ws, db):
         if ui:
             standard_sort_order = ui.proposal_sort_order
 
+        resorted = []
+        for r in s.requests:
+            m = proposal_sort_order_re.search(r.request_url)
+            if m:
+                resorted.append(SORTORDER_MAP[m.group(1)])
+
         row = [
             s.id,
             'external' if _is_external(s.requests[0].ip) else 'university',
@@ -331,6 +345,7 @@ def export_sessions(args, ws, db):
             len(comments),
             sum(len(c.text) for c in comments),
             standard_sort_order,
+            json.dumps(resorted) if resorted else None,
         ] + user_row
         ws.write_row(row_num, row)
 
