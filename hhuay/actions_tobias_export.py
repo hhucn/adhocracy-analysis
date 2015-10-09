@@ -68,22 +68,37 @@ proposal_rex = re.compile(r'''(?x)^
     (?P<proposal_id>[0-9]+)
     -.*
 ''')
+read_comments_rex = re.compile(r'''(?x)
+    (?:/i/[a-z]+)?/stats/read_comments\?
+    path=.*?%2Fproposal%2F(?P<proposal_id>[0-9]+)-
+''')
 
 
 class ViewStats(object):
     __slots__ = (
         'request_timestamps',
         'duration',
+        'read_comments_count',
     )
 
     def __init__(self):
         self.request_timestamps = []
         self.duration = 0
+        self.read_comments_count = 0
 
 
 def calc_view_stats(session):
     by_proposal = collections.defaultdict(ViewStats)
     for r in session.requests:
+        m = read_comments_rex.match(r.request_url)
+        if m:
+            proposal_id = int(m.group('proposal_id'))
+            vdata = by_proposal[proposal_id]
+            if not vdata.request_timestamps:
+                vdata.request_timestamps.append(r.access_time)
+            print('Counting %r' % (r,))
+            vdata.read_comments_count += 1
+
         m = proposal_rex.match(r.request_url)
         if not m:
             continue
@@ -174,6 +189,7 @@ def read_users(db):
 
 
 def export_users(ws, db):
+    ws.freeze_panes(1, 0)
     ws.write_header(USER_HEADER)
     sorted_uis = sorted(read_users(db).values(), key=lambda ui: ui[0].id)
     sorted_rows = [ui[1] for ui in sorted_uis]
@@ -342,6 +358,7 @@ def read_proposals(db):
 
 
 def export_proposals(ws, db):
+    ws.freeze_panes(1, 0)
     ws.write_header(['id', 'visible', 'instance', 'created', 'title'])
     proposals = read_proposals(db)
     ws.write_rows([[
@@ -364,6 +381,7 @@ def export_sessions(args, ws, db):
 
     print('Processing sessions ...')
 
+    ws.freeze_panes(1, 0)
     headers = [
         'SessionId', 'AccessFrom', 'Anonymized IP Address', 'Device Type',
         'LoginFailures',
@@ -382,14 +400,15 @@ def export_sessions(args, ws, db):
                 'V%d_RequestTimestamps',
                 'V%d_Duration',
                 # V#_Voted
-                # V#_CommentsRead
+                'V%d_CommentsRead',
                 # V#_ChangedVote
                 # V#_RatedCommentCount
                 # V#_CommentsWritten
                 # V#_CommentsWrittenLength
                 # V#_WasReadAfterRequest
                 # V#_CommentCountOnAccess
-                # V#_CommentProposalSizeOnAccesV#_ProVotesOnAccess
+                # V#_CommentProposalSizeOnAcces
+                # V#_ProVotesOnAccess
                 # V#_ContraVotesOnAccess
             ]
             headers += [h % i for h in proposal_templates]
@@ -443,6 +462,7 @@ def export_sessions(args, ws, db):
                     proposals_row.extend([
                         json.dumps(vs.request_timestamps),
                         vs.duration,
+                        vs.read_comments_count,
                     ])
                 else:
                     proposals_row.extend([None] * 2)
