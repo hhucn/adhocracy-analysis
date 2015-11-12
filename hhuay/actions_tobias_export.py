@@ -56,6 +56,62 @@ class IPAnonymizer(object):
         return s
 
 
+proposal_rex = re.compile(r'''(?x)^
+    (?:
+        (?P<is_stats>
+            (?:/i/[a-z]+)?
+            /stats/on_page\?
+            page=https%3A%2F%2Fnormsetzung.cs.uni-duesseldorf.de%2Fi%2F[a-z]+%2Fproposal%2F
+        )|
+        /i/[a-z]+/proposal/
+    )
+    (?P<proposal_id>[0-9]+)
+    -.*
+''')
+read_comments_rex = re.compile(r'''(?x)
+    (?:/i/[a-z]+)?/stats/read_comments\?
+    path=.*?%2Fproposal%2F(?P<proposal_id>[0-9]+)-
+''')
+
+
+class ViewStats(object):
+    __slots__ = (
+        'request_timestamps',
+        'duration',
+        'read_comments_count',
+    )
+
+    def __init__(self):
+        self.request_timestamps = []
+        self.duration = 0
+        self.read_comments_count = 0
+
+
+def calc_view_stats(session):
+    by_proposal = collections.defaultdict(ViewStats)
+    for r in session.requests:
+        m = read_comments_rex.match(r.request_url)
+        if m:
+            proposal_id = int(m.group('proposal_id'))
+            vdata = by_proposal[proposal_id]
+            if not vdata.request_timestamps:
+                vdata.request_timestamps.append(r.access_time)
+            print('Counting %r' % (r,))
+            vdata.read_comments_count += 1
+
+        m = proposal_rex.match(r.request_url)
+        if not m:
+            continue
+        proposal_id = int(m.group('proposal_id'))
+        vdata = by_proposal[proposal_id]
+        if not m.group('is_stats') or not vdata.request_timestamps:
+            vdata.request_timestamps.append(r.access_time)
+        vdata.duration = max(
+            vdata.duration, r.access_time - vdata.request_timestamps[0])
+
+    return by_proposal
+
+
 def _is_external(ip):
     return not (ip.startswith('134.99.') or ip.startswith('134.94.'))
 
@@ -133,6 +189,7 @@ def read_users(db):
 
 
 def export_users(ws, db):
+    ws.freeze_panes(1, 0)
     ws.write_header(USER_HEADER)
     sorted_uis = sorted(read_users(db).values(), key=lambda ui: ui[0].id)
     sorted_rows = [ui[1] for ui in sorted_uis]
@@ -276,7 +333,7 @@ def read_comments(db):
 
 
 Proposal = collections.namedtuple(
-    'Proposal', ['id', 'title', 'visible', 'instance'])
+    'Proposal', ['id', 'title', 'visible', 'instance', 'create_time'])
 
 
 def read_proposals(db):
@@ -284,23 +341,33 @@ def read_proposals(db):
         proposal.id,
         delegateable.label,
         delegateable.delete_time,
-        instance.key
+        instance.key,
+        UNIX_TIMESTAMP(delegateable.create_time)
     FROM proposal, delegateable, instance
     WHERE proposal.id = delegateable.id AND
           delegateable.instance_id = instance.id
+    ORDER BY delegateable.create_time ASC
     ''')
     proposals = []
     for row in db:
-        proposal_id, title, delete_time, instance_key = row
+        proposal_id, title, delete_time, instance_key, create_time = row
         visible = 1 if delete_time is None else 0
-        proposals.append(Proposal(proposal_id, title, visible, instance_key))
+        proposals.append(Proposal(
+            proposal_id, title, visible, instance_key, create_time))
     return proposals
 
 
 def export_proposals(ws, db):
-    ws.write_header(['id', 'visible', 'instance', 'title'])
+    ws.freeze_panes(1, 0)
+    ws.write_header(['id', 'visible', 'instance', 'created', 'title'])
     proposals = read_proposals(db)
-    ws.write_rows([[p.id, p.visible, p.instance, p.title] for p in proposals])
+    ws.write_rows([[
+        p.id,
+        p.visible,
+        p.instance,
+        _format_timestamp(p.create_time),
+        p.title
+    ] for p in proposals])
 
 
 def export_sessions(args, ws, db):
@@ -314,6 +381,7 @@ def export_sessions(args, ws, db):
 
     print('Processing sessions ...')
 
+    ws.freeze_panes(1, 0)
     headers = [
         'SessionId', 'AccessFrom', 'Anonymized IP Address', 'Device Type',
         'LoginFailures',
@@ -324,7 +392,25 @@ def export_sessions(args, ws, db):
     ]
     if args.include_proposals:
         for i, p in enumerate(proposals):
-            proposal_templates = ['V%d_ID', 'V%d_Name', 'V%d_Active']
+            proposal_templates = [
+                'V%d_ID',
+                'V%d_Name',
+                'V%d_Active',
+                'V%d_Created',
+                'V%d_RequestTimestamps',
+                'V%d_Duration',
+                # V#_Voted
+                'V%d_CommentsRead',
+                # V#_ChangedVote
+                # V#_RatedCommentCount
+                # V#_CommentsWritten
+                # V#_CommentsWrittenLength
+                # V#_WasReadAfterRequest
+                # V#_CommentCountOnAccess
+                # V#_CommentProposalSizeOnAcces
+                # V#_ProVotesOnAccess
+                # V#_ContraVotesOnAccess
+            ]
             headers += [h % i for h in proposal_templates]
     headers += USER_HEADER
     ws.write_header(headers)
@@ -363,12 +449,23 @@ def export_sessions(args, ws, db):
 
         proposals_row = []
         if args.include_proposals:
+            view_stats = calc_view_stats(s)
             for p in proposals:
                 proposals_row.extend([
                     p.id,
                     p.title,
                     p.visible,
+                    p.create_time,
                 ])
+                if p.id in view_stats:
+                    vs = view_stats[p.id]
+                    proposals_row.extend([
+                        json.dumps(vs.request_timestamps),
+                        vs.duration,
+                        vs.read_comments_count,
+                    ])
+                else:
+                    proposals_row.extend([None] * 2)
 
         row = [
             s.id,
