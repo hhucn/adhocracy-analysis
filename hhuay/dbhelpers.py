@@ -24,7 +24,7 @@ class DBConnection(object):
         self.db = mysql.connector.connect(
             user=user, host=host, password=password, database=database,
             client_flags=flags, get_warnings=True, raise_on_warnings=True)
-        self.cursor = self.db.cursor()
+        self.cursor = self.db.cursor(buffered=True)
         return self
 
     def execute(self, sql, *args, **kwargs):

@@ -3,14 +3,14 @@ test:
 	pep8 .
 
 import:
-	./ay load_requestlog input/access_log_adhocracy --discard output/discards
+	./ay load_requestlog
 
 dependencies:
 	# Check for python
 	python -c 0 > /dev/null
 
-	pip3 install --user pygeoip
-	pip3 install --user matplotlib
+	pip3.4 install --user pygeoip
+	pip3.4 install --user matplotlib
 
 prepare:
 	./ay cleanup_requestlog

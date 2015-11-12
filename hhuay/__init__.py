@@ -11,9 +11,6 @@ import time
 
 from . import sources
 
-from .sources import (
-    read_requestlog_all,
-)
 from .util import (
     Option,
     options,
@@ -33,56 +30,19 @@ from . import actions_plot
 
 
 @options([
-    Option('--format', dest='format', metavar='FORMAT',
-           help='Output format ("repr", "json", or "benchmark")',
-           default='repr')
-])
-def action_file_listrequests(args):
-    """ Output all HTTP requests """
-
-    def discard(entry):
-        sys.stderr.write('discarding line %s' % line)
-
-    src = read_requestlog_all(args, discard=discard)
-    format = args.format
-    if format == 'repr':
-        for req in src:
-            print(req)
-    elif format == 'json':
-        l = [req._asdict() for req in src]
-        info = {
-            '_format': 'requestlist',
-            'requests': l,
-        }
-        json.dump(info, sys.stdout)
-        print()  # Output a final newline
-    elif format == 'benchmark':
-        start_time = time.clock()
-        count = sum(1 for _ in src)
-        end_time = time.clock()
-        print(
-            'Read %d requests in %d seconds (%d requests/s)' %
-            (count, (end_time - start_time), count / (end_time - start_time)))
-    elif format is None:
-        raise ValueError('No format specified')
-    else:
-        raise ValueError('Invalid list format %r' % format)
-
-
-@options([
     Option(
         '--summarize',
         dest='summarize',
         help='Group into browser versions',
         action='store_true')
-])
+], requires_db=False)
 def action_list_uas(args):
     """ List user agent prevalences """
 
     config = read_config(args)
     with DBConnection(config) as db:
         db.execute('''SELECT user_agent, COUNT(*) as count
-            FROM requestlog3 GROUP BY user_agent''')
+            FROM analysis_requestlog_combined GROUP BY user_agent''')
         uastats_raw = list(db)
 
     def summarize(ua):

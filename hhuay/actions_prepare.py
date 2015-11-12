@@ -1,6 +1,5 @@
 from __future__ import unicode_literals
 
-import io
 import re
 
 from .util import (
@@ -11,47 +10,42 @@ from .util import (
     sql_filter,
     TableSizeProgressBar,
 )
-from .sources import read_requestlog_all
-
+from .sources import get_requests_from_db
 
 @options([], requires_db=True)
 def action_load_requestlog(args, config, db, wdb):
-    """ Load requestlog from a file into the database """
+    """ Creates analysis_requestlog database table based off requestlog table """
 
-    if not args.discardfile:
-        raise ValueError('Must specify a discard file!')
+    wdb.drop_table('analysis_requestlog')
+    wdb.execute('''CREATE TABLE analysis_requestlog (
+        id int PRIMARY KEY auto_increment,
+        access_time int,
+        ip_address varchar(255),
+        request_url text,
+        cookies text,
+        user_agent text,
+        deleted boolean NOT NULL,
+        method varchar(10));
+    ''')
 
-    with io.open(args.discardfile, 'w', encoding='utf-8') as discardf:
-        def discard(line):
-            discardf.write(line)
-
-        wdb.drop_table('analysis_requestlog')
-        wdb.execute('''CREATE TABLE analysis_requestlog (
-            id int PRIMARY KEY auto_increment,
-            access_time int,
-            ip_address varchar(255),
-            request_url text,
-            cookies text,
-            user_agent text,
-            deleted boolean NOT NULL,
-            method varchar(10));
-        ''')
-
-        for r in read_requestlog_all(args, discard=discard,
-                                     progressclass=FileProgress):
-            sql = '''INSERT INTO analysis_requestlog
-                SET access_time = %s,
-                    ip_address = %s,
-                    request_url = %s,
-                    cookies = %s,
-                    user_agent = %s,
-                    method = %s,
-                    deleted = 0;
-            '''
-            wdb.execute(
-                sql,
-                (r.time, r.ip, r.path, r.cookies, r.user_agent, r.method))
-        wdb.commit()
+    # We need a second cursor due to parallel db access
+    cur2 = wdb.db.cursor(buffered=True)
+    
+    for r in get_requests_from_db(db):
+        sql = '''INSERT INTO analysis_requestlog
+            SET access_time = %s,
+                ip_address = %s,
+                request_url = %s,
+                cookies = %s,
+                user_agent = %s,
+                method = '',
+                deleted = 0;
+        '''
+        cur2.execute(
+            sql,
+            (r.time, r.ip, r.path, r.cookies, r.user_agent))
+        
+    wdb.commit()
 
 
 @options([], requires_db=True)
@@ -81,10 +75,16 @@ def action_cleanup_requestlog(args, config, db, wdb):
     print('Deleted %d rows due to UA constraints' % wdb.affected_rows())
 
     wdb.execute(
+        '''UPDATE analysis_requestlog SET deleted=1
+            WHERE cookies is NULL;
+    ''')
+    wdb.commit()
+    print('Deleted %d rows that do not have cookies' % wdb.affected_rows())
+
+    wdb.execute(
         '''CREATE OR REPLACE VIEW analysis_requestlog_undeleted AS
             SELECT * FROM analysis_requestlog WHERE NOT deleted''')
     wdb.commit()
-
 
 @options(requires_db=True)
 def action_annotate_requests(args, config, db, wdb):
@@ -176,7 +176,6 @@ def action_annotate_requests(args, config, db, wdb):
         FROM analysis_requestlog_undeleted, analysis_request_annotations
         WHERE analysis_requestlog_undeleted.id = analysis_request_annotations.request_id
     ''')
-
 
 @options()
 def action_user_classification(args, config, db, wdb):

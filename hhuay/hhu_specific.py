@@ -2,10 +2,10 @@ def get_status_groups(db):
     """ Returns a dictionary user_id => Statusgruppe """
 
     def get_group_by_badges(badges):
-        for b in ('Professor/in', 'Mittelbau', 'Doktorand/in'):
+        for b in ('Professor/in / PD', 'Postdoktorand/in'):
             if b in badges:
                 return b
-        return 'Sonstige'
+        return 'Andere'
 
     res = {}
     uids = db.simple_query('SELECT id FROM user')
