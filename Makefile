@@ -18,7 +18,10 @@ prepare:
 
 run: prepare
 	./ay list_uas --summarize > output/uas
-	./ay session_stats
+	./ay session_user_stats
 	./ay basicfacts
+
+export:
+	./ay tobias_export --output output.xlsx --include-proposals
 
 .PHONY: test

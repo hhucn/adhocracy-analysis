@@ -25,12 +25,12 @@ SORTORDER_MAP = {
     '6': '-order.proposal.support',
 }
 
-
+#TODO confirmed
 User = collections.namedtuple(
     'User',
     ['id', 'textid', 'name', 'gender', 'badges', 'proposal_sort_order'])
 
-
+#TODO confirmed
 def _format_timestamp(ts):
     st = time.gmtime(ts)
     return time.strftime('%Y-%m-%d %H:%M:%S', st)
@@ -96,7 +96,7 @@ def calc_view_stats(session):
             vdata = by_proposal[proposal_id]
             if not vdata.request_timestamps:
                 vdata.request_timestamps.append(r.access_time)
-            print('Counting %r' % (r,))
+            #print('Counting %r' % (r,))
             vdata.read_comments_count += 1
 
         m = proposal_rex.match(r.request_url)
@@ -127,13 +127,17 @@ def _request_counter(rex):
 
     return count
 
-
+#TODO confirmed
 USER_HEADER = [
-    'User ID', 'Array of Badges (JSON)', 'Female',
-    'StatusProf', 'StatusCoordinator', 'StatusWiMi', 'StatusNiWiMi',
-    'StatusPhD', 'StatusExtern', 'StatusStudent']
+    'User ID',
+    'Array of Badges (JSON)',
+    'Female',
+    'StatusProf',
+    'StatusPostdoc',
+    'StatusOther',
+]
 
-
+#TODO confirmed
 def read_users(db):
     """ Return a dictionary of textids mapping to tuples
         (User object, Cell values) """
@@ -168,26 +172,18 @@ def read_users(db):
     for u in users.values():
         assert u.gender in ('m', 'f')
         gender_code = 0 if u.gender == 'm' else 1
-        status_prof = int("Professor/in" in u.badges)
-        status_coordinator = int("KoNo-Projekt" in u.badges)
-        status_wi_mi = int("Mittelbau" in u.badges)
-        status_ni_wi_mi = int(
-            "Weitere Mitarbeiterinnen und Mitarbeiter" in u.badges)
-        status_phd = int("Doktorand/in" in u.badges)
-        status_extern = 'Nicht erfasst' if status_phd else 0
-        status_student = int("Studierende" in u.badges)
+        status_prof = int("Professor/in / PD" in u.badges)
+        status_postdoc = int("Postdoktorand/in" in u.badges)
+        status_other = int("Andere" in u.badges)
 
-        assert sum(
-            [status_prof, status_wi_mi, status_ni_wi_mi, status_phd,
-             status_student]) <= 1
+        assert sum([status_prof, status_postdoc, status_other]) == 1
         cells = [
             u.id, json.dumps(sorted(u.badges)), gender_code,
-            status_prof, status_coordinator, status_wi_mi, status_ni_wi_mi,
-            status_phd, status_extern, status_student]
+            status_prof, status_postdoc, status_other]
         user_info[u.textid] = (u, cells)
     return user_info
 
-
+#TODO confirmed
 def export_users(ws, db):
     ws.freeze_panes(1, 0)
     ws.write_header(USER_HEADER)
@@ -203,14 +199,16 @@ Request = collections.namedtuple('Request', [
     'user_sid'])
 
 
-def read_sessions(args, db):
+def read_sessions(args, db, config):
     cache_fn = os.path.join('.cache', 'sessions.pickle')
-    if os.path.exists(cache_fn):
-        print('Reading sessions from pickle ...')
-        with open(cache_fn, 'rb') as picklef:
-            return pickle.load(picklef)
+    #if os.path.exists(cache_fn):
+        #print('Reading sessions from pickle ...')
+        #with open(cache_fn, 'rb') as picklef:
+            #return pickle.load(picklef)
 
     print('Reading requests from database ...')
+    startDate = config['startdate'];
+    endDate = config['enddate'];
     db.execute('''SELECT
         analysis_requestlog_undeleted.id,
         analysis_requestlog_undeleted.ip_address,
@@ -222,10 +220,10 @@ def read_sessions(args, db):
     FROM
         analysis_requestlog_undeleted
     WHERE
-        analysis_requestlog_undeleted.access_time > 1371803905 AND
-        analysis_requestlog_undeleted.access_time < 1372787899
+        analysis_requestlog_undeleted.access_time > UNIX_TIMESTAMP(\'%s\') AND
+        analysis_requestlog_undeleted.access_time < UNIX_TIMESTAMP(\'%s\')
     ORDER BY analysis_requestlog_undeleted.id
-    ;''')
+    ;''' % (startDate, endDate) )
 
     print('Collecting request info ...')
     requests_ipua = collections.defaultdict(list)
@@ -297,9 +295,9 @@ def read_sessions(args, db):
 
     sessions.sort(key=lambda s: s.requests[0].access_time)
 
-    print('Dumping to pickle')
-    with open(cache_fn, 'wb') as cache_f:
-        pickle.dump(sessions, cache_f, pickle.HIGHEST_PROTOCOL)
+    #print('Dumping to pickle')
+    #with open(cache_fn, 'wb') as cache_f:
+        #pickle.dump(sessions, cache_f, pickle.HIGHEST_PROTOCOL)
 
     return sessions
 
@@ -331,11 +329,11 @@ def read_comments(db):
         res.setdefault(user_id, []).append(Comment(*row))
     return res
 
-
+#TODO confirmed
 Proposal = collections.namedtuple(
     'Proposal', ['id', 'title', 'visible', 'instance', 'create_time'])
 
-
+#TODO confirmed
 def read_proposals(db):
     db.execute('''SELECT
         proposal.id,
@@ -356,7 +354,7 @@ def read_proposals(db):
             proposal_id, title, visible, instance_key, create_time))
     return proposals
 
-
+#TODO confirmed
 def export_proposals(ws, db):
     ws.freeze_panes(1, 0)
     ws.write_header(['id', 'visible', 'instance', 'created', 'title'])
@@ -370,13 +368,13 @@ def export_proposals(ws, db):
     ] for p in proposals])
 
 
-def export_sessions(args, ws, db):
+def export_sessions(args, ws, db, config):
     print('Reading database')
     proposals = read_proposals(db)
     users = read_users(db)
     all_comments = read_comments(db)
 
-    sessions = read_sessions(args, db)
+    sessions = read_sessions(args, db, config)
     ipa = IPAnonymizer()
 
     print('Processing sessions ...')
@@ -399,17 +397,17 @@ def export_sessions(args, ws, db):
                 'V%d_Created',
                 'V%d_RequestTimestamps',
                 'V%d_Duration',
-                # V#_Voted
+                'V%d_Voted',
                 'V%d_CommentsRead',
-                # V#_ChangedVote
-                # V#_RatedCommentCount
-                # V#_CommentsWritten
-                # V#_CommentsWrittenLength
-                # V#_WasReadAfterRequest
-                # V#_CommentCountOnAccess
-                # V#_CommentProposalSizeOnAcces
-                # V#_ProVotesOnAccess
-                # V#_ContraVotesOnAccess
+                'V%d_ChangedVote',
+                'V%d_RatedCommentCount',
+                'V%d_CommentsWritten',
+                'V%d_CommentsWrittenLength',
+                'V%d_WasReadAfterRequest',
+                'V%d_CommentCountOnAccess',
+                'V%d_CommentProposalSizeOnAcces',
+                'V%d_ProVotesOnAccess',
+                'V%d_ContraVotesOnAccess',
             ]
             headers += [h % i for h in proposal_templates]
     headers += USER_HEADER
@@ -462,10 +460,34 @@ def export_sessions(args, ws, db):
                     proposals_row.extend([
                         json.dumps(vs.request_timestamps),
                         vs.duration,
+                        '<voted>',
                         vs.read_comments_count,
+                        '<ChangedVote>',
+                        '<RatedCommentCount>',
+                        '<CommentsWritten>',
+                        '<CommentsWrittenLength>',
+                        '<WasReadAfterRequest>',
+                        '<CommentCountOnAccess>',
+                        '<CommentProposalSizeOnAcces>',
+                        '<ProVotesOnAccess>',
+                        '<ContraVotesOnAccess>',
                     ])
                 else:
-                    proposals_row.extend([None] * 2)
+                    proposals_row.extend([
+                        None,
+                        None,
+                        '<voted>',
+                        None,
+                        '<ChangedVote>',
+                        '<RatedCommentCount>',
+                        '<CommentsWritten>',
+                        '<CommentsWrittenLength>',
+                        '<WasReadAfterRequest>',
+                        '<CommentCountOnAccess>',
+                        '<CommentProposalSizeOnAcces>',
+                        '<ProVotesOnAccess>',
+                        '<ContraVotesOnAccess>',
+                    ])
 
         row = [
             s.id,
@@ -508,7 +530,7 @@ def export_sessions(args, ws, db):
 def action_tobias_export(args, config, db, wdb):
     book = xlsx.gen_doc(args.out_fn, ['Sessions', 'Benutzer', 'Proposals'])
 
-    export_sessions(args, book.worksheets_objs[0], db)
+    export_sessions(args, book.worksheets_objs[0], db, config)
     export_users(book.worksheets_objs[1], db)
     export_proposals(book.worksheets_objs[2], db)
 
