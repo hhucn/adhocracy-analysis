@@ -15,6 +15,7 @@ dependencies:
 prepare:
 	./ay cleanup_requestlog
 	./ay annotate_requests
+	./ay assign_requestlog_sessions --timeout 600
 
 run: prepare
 	./ay list_uas --summarize > output/uas
@@ -22,6 +23,9 @@ run: prepare
 	./ay basicfacts
 
 export:
-	./ay tobias_export --output output.xlsx --include-proposals
+	./ay tobias_export --output output/output.xlsx --include-proposals
+
+exportshort:
+	./ay tobias_export --output output/output_no_proposals.xlsx
 
 .PHONY: test

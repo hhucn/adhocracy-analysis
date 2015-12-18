@@ -56,3 +56,4 @@ def action_basicfacts(args, config, db, wdb):
     vote_count = db.simple_query(
         'SELECT COUNT(DISTINCT user_id, poll_id) FROM vote ' + where_q)[0]
     print('%d votings' % vote_count)
+

@@ -9,10 +9,15 @@ import os.path
 import re
 import time
 
+from .dbhelpers import (
+    DBConnection,
+)
+
 from .util import (
     extract_user_from_cookies,
     options,
     Option,
+    TableSizeProgressBar,
 )
 from . import xlsx
 
@@ -25,17 +30,30 @@ SORTORDER_MAP = {
     '6': '-order.proposal.support',
 }
 
-#TODO confirmed
 User = collections.namedtuple(
     'User',
     ['id', 'textid', 'name', 'gender', 'badges', 'proposal_sort_order'])
 
-#TODO confirmed
 def _format_timestamp(ts):
     st = time.gmtime(ts)
     return time.strftime('%Y-%m-%d %H:%M:%S', st)
 
+def _get_anonym_user_id(user_name, cookie, user_dict, user_id_dict):
+    key = cookie
 
+    # Is registered user?
+    if user_name:
+        key = user_name
+    elif cookie in user_dict:
+        key = user_dict[cookie]
+    
+    if key in user_id_dict:
+        return user_id_dict[key]
+    else:
+        n = len(user_id_dict.values()) + 1
+        user_id_dict[key] = n
+        return n
+    
 class IPAnonymizer(object):
     def __init__(self):
         self._anonymized = {}
@@ -55,7 +73,6 @@ class IPAnonymizer(object):
         self._all_values.add(s)
         return s
 
-
 proposal_rex = re.compile(r'''(?x)^
     (?:
         (?P<is_stats>
@@ -68,6 +85,7 @@ proposal_rex = re.compile(r'''(?x)^
     (?P<proposal_id>[0-9]+)
     -.*
 ''')
+
 read_comments_rex = re.compile(r'''(?x)
     (?:/i/[a-z]+)?/stats/read_comments\?
     path=.*?%2Fproposal%2F(?P<proposal_id>[0-9]+)-
@@ -78,18 +96,37 @@ class ViewStats(object):
     __slots__ = (
         'request_timestamps',
         'duration',
+        'voted',
         'read_comments_count',
+        'changed_vote',
+        'rated_comment_count',
+        'comments_written',
+        'comments_written_length',
+        'comment_count_on_access',
+        'comment_proposal_size_on_access',
+        'pro_votes_on_access',
+        'contra_votes_on_access'
     )
 
     def __init__(self):
         self.request_timestamps = []
         self.duration = 0
+        self.voted = 0
         self.read_comments_count = 0
+        self.changed_vote = 0
+        self.rated_comment_count = 0
+        self.comments_written = 0
+        self.comments_written_length = 0
+        self.comment_count_on_access = 0
+        self.comment_proposal_size_on_access = 0
+        self.pro_votes_on_access = 0
+        self.contra_votes_on_access = 0
 
-
-def calc_view_stats(session):
+def calc_view_stats(session, db):
     by_proposal = collections.defaultdict(ViewStats)
+    
     for r in session.requests:
+        # Comments read in this request?
         m = read_comments_rex.match(r.request_url)
         if m:
             proposal_id = int(m.group('proposal_id'))
@@ -99,22 +136,201 @@ def calc_view_stats(session):
             #print('Counting %r' % (r,))
             vdata.read_comments_count += 1
 
+        # Update session duration
         m = proposal_rex.match(r.request_url)
-        if not m:
-            continue
-        proposal_id = int(m.group('proposal_id'))
+        if m:
+            proposal_id = int(m.group('proposal_id'))
+            vdata = by_proposal[proposal_id]
+            if not m.group('is_stats') or not vdata.request_timestamps:
+                vdata.request_timestamps.append(r.access_time)
+            vdata.duration = max(
+                vdata.duration, r.access_time - vdata.request_timestamps[0])
+        
+    # Calculate proposal based variables
+    for proposal_id in by_proposal:
         vdata = by_proposal[proposal_id]
-        if not m.group('is_stats') or not vdata.request_timestamps:
-            vdata.request_timestamps.append(r.access_time)
-        vdata.duration = max(
-            vdata.duration, r.access_time - vdata.request_timestamps[0])
+        first_access_session = vdata.request_timestamps[0] #When did user first access THIS proposal during THIS session?
+        last_access_session = vdata.request_timestamps[-1] #When did user last access THIS proposal during THIS session?
+        #print('[%d] first access: %d' % (proposal_id, first_access_session))
+        
+        # Number of comments on access
+        vdata.comment_count_on_access = db.simple_query('''SELECT count(*)
+        FROM comment
+        WHERE topic_id =
+            (SELECT description_id
+            FROM proposal
+            WHERE id=%d
+            )
+        AND (create_time < FROM_UNIXTIME(%d))
+        AND (delete_time IS NULL OR delete_time > FROM_UNIXTIME(%d));
+        ''' % (proposal_id, first_access_session, first_access_session))[0]
+            
+        # number of pro and contra votes when user accessed proposal page (i.e. before she voted)
+        db.execute('''SELECT vote.user_id, vote.orientation
+        FROM vote
+        INNER JOIN 
+            (SELECT user_id, MAX(create_time) AS last_create_time FROM
+                (SELECT *
+                FROM vote
+                WHERE (UNIX_TIMESTAMP(create_time) < %d)
+                AND poll_id = (SELECT id FROM poll WHERE subject LIKE '@[proposal:%d]')
+                ) AS proposal_vote
+            GROUP BY user_id
+            ) AS user_proposal_vote
+        ON (vote.user_id = user_proposal_vote.user_id and vote.create_time = user_proposal_vote.last_create_time);
+        ''' % (first_access_session, proposal_id))
+        number_votes_pro = 0
+        number_votes_con = 0
+        for row in db:
+            user_id, orientation = row[0],row[1]
+            if orientation == 1:
+                number_votes_pro += 1
+            if orientation == -1:
+                number_votes_con += 1
+        #print('[%d] pro votes on access: %d' % (proposal_id, number_votes_pro))
+        #print('[%d] con votes on access: %d' % (proposal_id, number_votes_con))
+        vdata.pro_votes_on_access = number_votes_pro
+        vdata.contra_votes_on_access = number_votes_con
+        
+        # total number of characters of THIS proposal and comments for THIS proposal when THIS user first accessed the proposal page in THIS session
+        comment_length_raw = db.simple_query('''SELECT SUM(CHAR_LENGTH(revision.text))
+        FROM revision
+        INNER JOIN 
+            (SELECT comment_id, MAX(create_time) AS last_create_time FROM
+                (SELECT *
+                FROM revision
+                WHERE comment_id IN
+                    (SELECT id
+                    FROM comment
+                    WHERE topic_id =
+                        (SELECT description_id
+                        FROM proposal
+                        WHERE id=%d
+                        )
+                    AND (create_time < FROM_UNIXTIME(%d))
+                    AND (delete_time IS NULL OR delete_time > FROM_UNIXTIME(%d))
+                    ) 
+                AND create_time < FROM_UNIXTIME(%d)
+                ) AS revision_validated
+            GROUP BY comment_id
+            ) AS revision_validated_filtered
+        ON (revision.comment_id = revision_validated_filtered.comment_id and revision.create_time = revision_validated_filtered.last_create_time)
+        ''' % (proposal_id, first_access_session, first_access_session, first_access_session))[0]
+        comment_length = comment_length_raw if (comment_length_raw is not None) else 0
+        #print('[%d] comment_length: %d' % (proposal_id, comment_length));
+        
+        db.execute('''SELECT CHAR_LENGTH(text.title), CHAR_LENGTH(text.text)
+        FROM text
+        INNER JOIN 
+            (SELECT page_id, MAX(create_time) AS last_create_time FROM
+                (SELECT *
+                FROM text
+                WHERE page_id =
+                    (SELECT description_id
+                    FROM proposal
+                    WHERE id=%d
+                    )
+                AND create_time < FROM_UNIXTIME(%d)
+                ) AS text_validated
+            GROUP BY page_id
+            ) AS text_validated_filtered
+        ON (text.page_id = text_validated_filtered.page_id and text.create_time = text_validated_filtered.last_create_time);
+        ''' % (proposal_id, first_access_session))
+        proposal_length_title = 0
+        proposal_length_text = 0
+        for row in db:
+            proposal_length_title = row[0]
+            proposal_length_text = row[1]
+        #print('[%d] proposal_length (title, text): %d, %d' % (proposal_id, proposal_length_title, proposal_length_text));
+        vdata.comment_proposal_size_on_access = comment_length + proposal_length_title + proposal_length_text
+        
+        # total number of characters in comments for THIS proposal written by THIS user DURING THIS session
+        comment_written_count = 0
+        comment_written_length = 0
+        if session.user_name:
+            db.execute('''SELECT COUNT(*), SUM(CHAR_LENGTH(text))
+            FROM revision
+            WHERE comment_id in
+                (SELECT id
+                FROM comment
+                WHERE topic_id =
+                    (SELECT description_id
+                    FROM proposal
+                    WHERE id=%d
+                    )
+                )
+            AND user_id = (SELECT id FROM user WHERE user_name = '%s')
+            AND (create_time <= FROM_UNIXTIME(%d))
+            AND (create_time >= FROM_UNIXTIME(%d));
+            ''' % (proposal_id, session.user_name, last_access_session, first_access_session))
+            for row in db:
+                comment_written_count = row[0]
+                comment_written_length = row[1] if (row[1] is not None) else 0
+        #print('[%d] comment_written_count: %d' % (proposal_id, comment_written_count))
+        #print('[%d] comment_written_length: %d' % (proposal_id, comment_written_length))
+        vdata.comments_written_length = comment_written_length
+        vdata.comments_written = comment_written_count
+        
+        # vote result by THIS user for THIS proposal after THIS session: +1 for approval, -1 for disapproval (if voted multiple times, this always carries the latest vote)
+        vote_after_session = 0
+        if session.user_name:
+            vote_after_session_raw = db.simple_query('''SELECT vote.orientation
+            FROM vote
+            INNER JOIN 
+                (SELECT user_id, MAX(create_time) AS last_create_time
+                FROM vote
+                WHERE (UNIX_TIMESTAMP(create_time) <= %d)
+                AND poll_id = (SELECT id FROM poll WHERE subject LIKE '@[proposal:%d]')
+                AND user_id = (SELECT id FROM user WHERE user_name = '%s')
+                ) AS vote_filtered
+            ON (vote.user_id = vote_filtered.user_id and vote.create_time = vote_filtered.last_create_time);
+            ''' % (last_access_session, proposal_id, session.user_name))
+            vote_after_session = vote_after_session_raw[0] if vote_after_session_raw else 0;
+        #print('[%d] user\'s vote after session: %d' % (proposal_id, vote_after_session))
+        vdata.voted = vote_after_session
+        
+        # Did THIS user vote on THIS proposal during THIS session?
+        did_vote = 0
+        if session.user_name:
+            did_vote_raw = db.simple_query('''SELECT id
+            FROM vote
+            WHERE (UNIX_TIMESTAMP(create_time) <= %d)
+            AND (UNIX_TIMESTAMP(create_time) >= %d)
+            AND poll_id = (SELECT id FROM poll WHERE subject LIKE '@[proposal:%d]')
+            AND user_id = (SELECT id FROM user WHERE user_name = '%s');
+            ''' % (last_access_session, first_access_session, proposal_id, session.user_name))
+            did_vote = 1 if did_vote_raw else 0;
+        #print('[%d] did user vote during this session? %d' % (proposal_id, did_vote))
+        vdata.changed_vote = did_vote
+        
+        # number of comments for THIS proposal that were rated by THIS user DURING THIS session
+        comments_rated = 0
+        if session.user_name:
+            comments = db.simple_query('''SELECT id
+            FROM comment
+            WHERE topic_id =
+                (SELECT description_id
+                FROM proposal
+                WHERE id=%d
+                );
+            ''' % (proposal_id,))
+            for comment_id in comments:
+                comments_rated_raw = db.simple_query('''SELECT COUNT(*)
+                FROM vote
+                WHERE (UNIX_TIMESTAMP(create_time) <= %d)
+                AND (UNIX_TIMESTAMP(create_time) >= %d)
+                AND poll_id = (SELECT id FROM poll WHERE subject LIKE '@[comment:%d]')
+                AND user_id = (SELECT id FROM user WHERE user_name = '%s');
+                ''' % (last_access_session, first_access_session, comment_id, session.user_name))[0]
+                comments_rated += comments_rated_raw
+        #print('[%d] number of votes for comments during this session: %d' % (proposal_id, comments_rated))
+        vdata.rated_comment_count = comments_rated
+        
 
     return by_proposal
 
-
 def _is_external(ip):
     return not (ip.startswith('134.99.') or ip.startswith('134.94.'))
-
 
 def _request_counter(rex):
     re_obj = re.compile(rex)
@@ -127,7 +343,6 @@ def _request_counter(rex):
 
     return count
 
-#TODO confirmed
 USER_HEADER = [
     'User ID',
     'Array of Badges (JSON)',
@@ -137,7 +352,6 @@ USER_HEADER = [
     'StatusOther',
 ]
 
-#TODO confirmed
 def read_users(db):
     """ Return a dictionary of textids mapping to tuples
         (User object, Cell values) """
@@ -183,7 +397,6 @@ def read_users(db):
         user_info[u.textid] = (u, cells)
     return user_info
 
-#TODO confirmed
 def export_users(ws, db):
     ws.freeze_panes(1, 0)
     ws.write_header(USER_HEADER)
@@ -191,120 +404,8 @@ def export_users(ws, db):
     sorted_rows = [ui[1] for ui in sorted_uis]
     ws.write_rows(sorted_rows)
 
-
-Session = collections.namedtuple('Session', ['id', 'requests', 'user_sid'])
-Request = collections.namedtuple('Request', [
-    'id', 'ip', 'access_time', 'request_url', 'cookies', 'user_agent',
-    'method',
-    'user_sid'])
-
-
-def read_sessions(args, db, config):
-    cache_fn = os.path.join('.cache', 'sessions.pickle')
-    #if os.path.exists(cache_fn):
-        #print('Reading sessions from pickle ...')
-        #with open(cache_fn, 'rb') as picklef:
-            #return pickle.load(picklef)
-
-    print('Reading requests from database ...')
-    startDate = config['startdate'];
-    endDate = config['enddate'];
-    db.execute('''SELECT
-        analysis_requestlog_undeleted.id,
-        analysis_requestlog_undeleted.ip_address,
-        analysis_requestlog_undeleted.access_time,
-        analysis_requestlog_undeleted.request_url,
-        analysis_requestlog_undeleted.cookies,
-        analysis_requestlog_undeleted.user_agent,
-        analysis_requestlog_undeleted.method
-    FROM
-        analysis_requestlog_undeleted
-    WHERE
-        analysis_requestlog_undeleted.access_time > UNIX_TIMESTAMP(\'%s\') AND
-        analysis_requestlog_undeleted.access_time < UNIX_TIMESTAMP(\'%s\')
-    ORDER BY analysis_requestlog_undeleted.id
-    ;''' % (startDate, endDate) )
-
-    print('Collecting request info ...')
-    requests_ipua = collections.defaultdict(list)
-    for row in db:
-        (request_id, ip, access_time, request_url, cookies,
-            user_agent, method) = row
-
-        session_id = (ip, user_agent)
-        user_sid = extract_user_from_cookies(cookies)
-        req = Request(
-            request_id, ip, access_time, request_url, cookies,
-            user_agent, method, user_sid)
-        requests_ipua[session_id].append(req)
-
-    print('Assembling session info ...')
-    sessions = []
-
-    def _write_session(sessions, by_user, key, current_time, delete=True):
-        if current_time != 'force':
-            if key not in by_user:
-                return
-
-            session_age = current_time - by_user[key][-1].access_time
-            if session_age < args.timeout:
-                return
-
-        requests = by_user[key]
-        if delete:
-            del by_user[key]
-
-        try:
-            user_sid = next(r.user_sid for r in requests if r.user_sid)
-        except StopIteration:
-            user_sid = 'anonymous'
-        s = Session(len(sessions), requests, user_sid)
-        sessions.append(s)
-
-    for requests in requests_ipua.values():
-        by_user = {}
-        write_session = functools.partial(_write_session, sessions, by_user)
-
-        for r in requests:
-            tainted_until = None
-            if '/admin/' in r.request_url:
-                requests = {}
-                tainted_until = r.access_time + args.timeout
-                continue
-            if tainted_until and r.access_time < tainted_until:
-                continue
-
-            write_session(r.user_sid, r.access_time)
-            if r.user_sid not in by_user:
-                # Do we have any unassigned and usable requests?
-                if (r.user_sid is not None) and (None in by_user):
-                    write_session(None, r.access_time)
-
-                    if None in by_user:
-                        by_user[r.user_sid] = by_user[None]
-                        del by_user[None]
-                    else:
-                        by_user[r.user_sid] = []
-                else:
-                    by_user[r.user_sid] = []
-
-            by_user[r.user_sid].append(r)
-
-        for k in by_user:
-            write_session(k, 'force', delete=False)
-
-    sessions.sort(key=lambda s: s.requests[0].access_time)
-
-    #print('Dumping to pickle')
-    #with open(cache_fn, 'wb') as cache_f:
-        #pickle.dump(sessions, cache_f, pickle.HIGHEST_PROTOCOL)
-
-    return sessions
-
-
 Comment = collections.namedtuple(
     'Comment', ['id', 'creator_id', 'create_time', 'revision_id', 'text'])
-
 
 def read_comments(db):
     db.execute('''SELECT
@@ -329,11 +430,9 @@ def read_comments(db):
         res.setdefault(user_id, []).append(Comment(*row))
     return res
 
-#TODO confirmed
 Proposal = collections.namedtuple(
     'Proposal', ['id', 'title', 'visible', 'instance', 'create_time'])
 
-#TODO confirmed
 def read_proposals(db):
     db.execute('''SELECT
         proposal.id,
@@ -354,7 +453,6 @@ def read_proposals(db):
             proposal_id, title, visible, instance_key, create_time))
     return proposals
 
-#TODO confirmed
 def export_proposals(ws, db):
     ws.freeze_panes(1, 0)
     ws.write_header(['id', 'visible', 'instance', 'created', 'title'])
@@ -367,6 +465,95 @@ def export_proposals(ws, db):
         p.title
     ] for p in proposals])
 
+class Session(object):
+    __slots__ = 'tracking_cookie', 'session_id', 'requests', 'user_name', 'length', 'start_time', 'end_time'
+
+    def __init__(self):
+        self.tracking_cookie = None
+        self.session_id = None
+        self.requests = []
+        self.user_name = None
+        self.length = None
+        self.start_time = None
+        self.end_time = None
+Request = collections.namedtuple('Request', [
+    'id', 'ip', 'access_time', 'request_url', 'cookies', 'user_agent',
+    'method'])
+
+def _is_admin(s, user_dict):
+    if s.user_name == 'admin':
+        return 1
+    if s.tracking_cookie and (s.tracking_cookie in user_dict) and user_dict[s.tracking_cookie] == 'admin':
+        return 1
+    return 0
+    
+def read_sessions(db, config, user_dict):
+    sessions = []
+    
+    print('Reading session data from database ...')
+    db.execute('''SELECT
+        analysis_session.id AS session_id,
+        analysis_session.first_update_timestamp AS start_time,
+        analysis_session.last_update_timestamp AS end_time,
+        analysis_session.tracking_cookie AS tracking_cookie,
+        analysis_session_length.session_length AS length
+    FROM
+        analysis_session, analysis_session_length
+    WHERE
+        analysis_session_length.session_id = analysis_session.id
+    ORDER BY
+        tracking_cookie, session_id
+    ;''')
+    
+    # Get session ids and access time infos
+    for row in db:
+        (session_id, start_time, end_time, tracking_cookie, length) = row
+        s = Session()
+        s.session_id = session_id
+        s.start_time = start_time
+        s.end_time = end_time
+        s.tracking_cookie = tracking_cookie
+        s.length = length
+        sessions.append(s)
+            
+    bar = TableSizeProgressBar(
+        db, 'analysis_session', 'Reading sessions')
+    for s in sessions:
+        bar.next()
+        
+        # Get session users
+        db.execute('''SELECT user_sid
+        FROM analysis_session_users
+        WHERE session_id=%s
+        ;''' % s.session_id )
+        
+        # Associate user names to sessions and to cookies 
+        for row in db:
+            (user_name,) = row
+            if user_name != None:
+                s.user_name = user_name
+                if s.tracking_cookie:
+                    user_dict[s.tracking_cookie] = user_name
+        
+        # Get Session requests
+        request_ids = db.simple_query('SELECT request_id FROM analysis_session_requests WHERE session_id=%d' % s.session_id )
+        
+        for request_id in request_ids:
+            db.execute('''SELECT access_time, ip_address, request_url, cookies, user_agent, method
+            FROM analysis_requestlog_undeleted
+            WHERE id=%d
+            ORDER BY access_time ASC
+        ;''' % request_id )
+            for row in db:
+                (access_time, ip_address, request_url, cookies, user_agent, method) = row
+                s.requests.append(Request(request_id, ip_address, access_time, request_url, cookies, user_agent, method))
+    
+    # Remove sessions associated with admin
+    print('\nsessions total: %d' % len(sessions))
+    sessions[:] = [s for s in sessions if not _is_admin(s, user_dict)]
+    print('sessions without admin: %d' % len(sessions))
+    
+    return sessions
 
 def export_sessions(args, ws, db, config):
     print('Reading database')
@@ -374,20 +561,25 @@ def export_sessions(args, ws, db, config):
     users = read_users(db)
     all_comments = read_comments(db)
 
-    sessions = read_sessions(args, db, config)
+    user_dict = {} # Maps tracking cookies to associated user_names
+    sessions = read_sessions(db, config, user_dict)
     ipa = IPAnonymizer()
-
+    
     print('Processing sessions ...')
 
     ws.freeze_panes(1, 0)
     headers = [
-        'SessionId', 'AccessFrom', 'Anonymized IP Address', 'Device Type',
+        'TrackingCookie', 'UserName', #TODO: nur zum Testen!!
+        'SessionId', 'AnonymUserId ', 'AccessFrom', 'Anonymized IP Address', 'Device Type',
         'LoginFailures',
         'SessionStart_Date', 'SessionStart', 'SessionEnd_Date', 'SessionEnd',
         'SessionDuration',
         'NavigationCount', 'VotedCount', 'CommentsWritten', 'CommentsLength',
-        'StandardSortOrder', 'Resorted (JSON)',
+        'Resorted (JSON)',
+        'ProposalsViewed', 'ViewedKnowledgeBase',
     ]
+    
+    headers += USER_HEADER
     if args.include_proposals:
         for i, p in enumerate(proposals):
             proposal_templates = [
@@ -403,28 +595,29 @@ def export_sessions(args, ws, db, config):
                 'V%d_RatedCommentCount',
                 'V%d_CommentsWritten',
                 'V%d_CommentsWrittenLength',
-                'V%d_WasReadAfterRequest',
                 'V%d_CommentCountOnAccess',
                 'V%d_CommentProposalSizeOnAcces',
                 'V%d_ProVotesOnAccess',
                 'V%d_ContraVotesOnAccess',
             ]
             headers += [h % i for h in proposal_templates]
-    headers += USER_HEADER
+    
     ws.write_header(headers)
 
     login_failures = _request_counter(r'/+post_login\?_login_tries=0')
     navigation_count = _request_counter(r'/')
     vote_count = _request_counter(r'/.*/rate\.')
     proposal_sort_order_re = re.compile(r'&proposals_sort=([0-9]+)')
+    access_knowledge_base_rex = re.compile(r'/i/grundsaetze/outgoing_link/824893fea3ed4bc0c9789e8d2fd6eb6b8f7c1ab635ec800a1edfff4f740bf837!aHR0cDovL3d3dy5waGlsby5oaHUuZGUvYWthZGVtaXNjaGUtcXVhbGlmaXppZXJ1bmcvaGFiaWxpdGF0aW9uLmh0bWw=\?')
 
+    user_id_dict = {}
     for row_num, s in enumerate(sessions, start=1):
         comments = []
-        sid = s.user_sid
-        if sid and (sid in users):
-            ui, user_rows = users[sid]
+        user_name = s.user_name
+        if user_name and (user_name in users):
+            ui, user_rows = users[user_name]
             user_row = user_rows
-
+            
             if ui.id in all_comments:
                 comments = [
                     c for c in all_comments[ui.id]
@@ -433,21 +626,34 @@ def export_sessions(args, ws, db, config):
                 ]
         else:
             ui = None
-            user_row = ['anonymous']
-
-        standard_sort_order = None
-        if ui:
-            standard_sort_order = ui.proposal_sort_order
-
+            user_row = ['anonymous',None,None,None,None,None]
+        
+        # Go through all requests of this session...
         resorted = []
+        did_access_knowledge_base = 0
+        proposals_viewed = []
         for r in s.requests:
+            # Resorted in this request?
             m = proposal_sort_order_re.search(r.request_url)
             if m:
                 resorted.append(SORTORDER_MAP[m.group(1)])
+            
+            # Did click external link "Habilitationsordnung" in this request?
+            m2 = access_knowledge_base_rex.match(r.request_url)
+            if m2:
+                did_access_knowledge_base += 1
+                
+            # Update list of proposals viewed during this session
+            m3 = proposal_rex.match(r.request_url)
+            if m3:
+                proposal_id = int(m3.group('proposal_id'))
+                if not m3.group('is_stats') and ((not proposals_viewed) or (proposal_id != proposals_viewed[-1])):
+                    proposals_viewed.append(proposal_id)
 
+        
         proposals_row = []
         if args.include_proposals:
-            view_stats = calc_view_stats(s)
+            view_stats = calc_view_stats(s, db)
             for p in proposals:
                 proposals_row.extend([
                     p.id,
@@ -458,57 +664,59 @@ def export_sessions(args, ws, db, config):
                 if p.id in view_stats:
                     vs = view_stats[p.id]
                     proposals_row.extend([
-                        json.dumps(vs.request_timestamps),
-                        vs.duration,
-                        '<voted>',
-                        vs.read_comments_count,
-                        '<ChangedVote>',
-                        '<RatedCommentCount>',
-                        '<CommentsWritten>',
-                        '<CommentsWrittenLength>',
-                        '<WasReadAfterRequest>',
-                        '<CommentCountOnAccess>',
-                        '<CommentProposalSizeOnAcces>',
-                        '<ProVotesOnAccess>',
-                        '<ContraVotesOnAccess>',
+                        json.dumps(vs.request_timestamps), #OK
+                        vs.duration, #OK
+                        vs.voted,
+                        vs.read_comments_count, #OK
+                        vs.changed_vote,
+                        vs.rated_comment_count,
+                        vs.comments_written,
+                        vs.comments_written_length,
+                        vs.comment_count_on_access,
+                        vs.comment_proposal_size_on_access,
+                        vs.pro_votes_on_access,
+                        vs.contra_votes_on_access,
                     ])
                 else:
                     proposals_row.extend([
                         None,
                         None,
-                        '<voted>',
                         None,
-                        '<ChangedVote>',
-                        '<RatedCommentCount>',
-                        '<CommentsWritten>',
-                        '<CommentsWrittenLength>',
-                        '<WasReadAfterRequest>',
-                        '<CommentCountOnAccess>',
-                        '<CommentProposalSizeOnAcces>',
-                        '<ProVotesOnAccess>',
-                        '<ContraVotesOnAccess>',
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None
                     ])
 
         row = [
-            s.id,
+            s.tracking_cookie, #TODO: Nur zum Testen!!!
+            s.user_name, #TODO: Nur zum Testen!!!
+            s.session_id,
+            _get_anonym_user_id(s.user_name, s.tracking_cookie, user_dict, user_id_dict),
             'external' if _is_external(s.requests[0].ip) else 'university',
             ipa(s.requests[0].ip),
-            'mobile' if 'mobile' in s.requests[0].user_agent else 'regular',
+            'mobile' if 'mobile' in s.requests[0].user_agent else 'regular', #TODO besser abfragen! Das hier erwischt nicht alle mobilen Geräte.
             login_failures(s),
-            _format_timestamp(s.requests[0].access_time),
-            s.requests[0].access_time,
-            _format_timestamp(s.requests[-1].access_time),
-            s.requests[-1].access_time,
-            s.requests[-1].access_time - s.requests[0].access_time,
+            _format_timestamp(s.start_time),
+            s.start_time,
+            _format_timestamp(s.end_time),
+            s.end_time,
+            s.end_time - s.start_time,
             navigation_count(s),
             vote_count(s),
             len(comments),
             sum(len(c.text) for c in comments),
-            standard_sort_order,
             json.dumps(resorted) if resorted else None,
-        ] + proposals_row + user_row
+            json.dumps(proposals_viewed),
+            did_access_knowledge_base,
+        ] + user_row + proposals_row
+        
         ws.write_row(row_num, row)
-
 
 @options([Option(
     '--output',
