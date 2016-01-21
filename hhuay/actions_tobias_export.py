@@ -350,6 +350,8 @@ USER_HEADER = [
     'StatusProf',
     'StatusPostdoc',
     'StatusOther',
+    'StatusFR',
+    'StatusHA',
 ]
 
 def read_users(db):
@@ -389,11 +391,20 @@ def read_users(db):
         status_prof = int("Professor/in / PD" in u.badges)
         status_postdoc = int("Postdoktorand/in" in u.badges)
         status_other = int("Andere" in u.badges)
+        status_fakrat = int("FakultÃ¤tsrat" in u.badges)
+        status_habilausschuss = int("Habilitationsausschuss" in u.badges)
 
         assert sum([status_prof, status_postdoc, status_other]) == 1
         cells = [
-            u.id, json.dumps(sorted(u.badges)), gender_code,
-            status_prof, status_postdoc, status_other]
+            u.id,
+            json.dumps(sorted(u.badges)),
+            gender_code,
+            status_prof,
+            status_postdoc,
+            status_other,
+            status_fakrat,
+            status_habilausschuss,
+        ]
         user_info[u.textid] = (u, cells)
     return user_info
 
@@ -431,7 +442,7 @@ def read_comments(db):
     return res
 
 Proposal = collections.namedtuple(
-    'Proposal', ['id', 'title', 'visible', 'instance', 'create_time'])
+    'Proposal', ['id', 'title', 'visible', 'instance', 'create_time', 'creator_name'])
 
 def read_proposals(db):
     db.execute('''SELECT
@@ -439,18 +450,20 @@ def read_proposals(db):
         delegateable.label,
         delegateable.delete_time,
         instance.key,
-        UNIX_TIMESTAMP(delegateable.create_time)
-    FROM proposal, delegateable, instance
+        UNIX_TIMESTAMP(delegateable.create_time),
+        user.user_name
+    FROM proposal, delegateable, instance, user
     WHERE proposal.id = delegateable.id AND
-          delegateable.instance_id = instance.id
+          delegateable.instance_id = instance.id AND
+          user.id = delegateable.creator_id
     ORDER BY delegateable.create_time ASC
     ''')
     proposals = []
     for row in db:
-        proposal_id, title, delete_time, instance_key, create_time = row
+        proposal_id, title, delete_time, instance_key, create_time, creator_name = row
         visible = 1 if delete_time is None else 0
         proposals.append(Proposal(
-            proposal_id, title, visible, instance_key, create_time))
+            proposal_id, title, visible, instance_key, create_time, creator_name))
     return proposals
 
 def export_proposals(ws, db):
@@ -587,6 +600,7 @@ def export_sessions(args, ws, db, config):
                 'V%d_Name',
                 'V%d_Active',
                 'V%d_Created',
+                'V%d_CreatedByThisUser',
                 'V%d_RequestTimestamps',
                 'V%d_Duration',
                 'V%d_Voted',
@@ -626,7 +640,7 @@ def export_sessions(args, ws, db, config):
                 ]
         else:
             ui = None
-            user_row = ['anonymous',None,None,None,None,None]
+            user_row = ['anonymous',None,None,None,None,None,None,None]
         
         # Go through all requests of this session...
         resorted = []
@@ -655,11 +669,13 @@ def export_sessions(args, ws, db, config):
         if args.include_proposals:
             view_stats = calc_view_stats(s, db)
             for p in proposals:
+                created_by_this_user = 1 if (p.creator_name == s.user_name) else 0
                 proposals_row.extend([
                     p.id,
                     p.title,
                     p.visible,
                     p.create_time,
+                    created_by_this_user,
                 ])
                 if p.id in view_stats:
                     vs = view_stats[p.id]
