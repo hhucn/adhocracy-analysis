@@ -24,13 +24,11 @@ headers = [
     'Uhrzeit',
     'pro',
     'contra',
-    #'Text Vorschlag',
     'Laufende Nummer',
 ]
 
 Comment = collections.namedtuple('Comment', [
     'instance', 'proposal_title',
-    #'proposal_text',
     'user', 'timestamp', 'pro',
     'contra', 'text', 'index', 'depth'])
 
@@ -69,9 +67,7 @@ def comment_to_row(c, data):
     return (
         [c.instance, c.proposal_title, c.user,
             group, badges, date, time,
-            c.pro, c.contra,
-            #c.proposal_text,
-            c.index] +
+            c.pro, c.contra, c.index] +
         ([''] * c.depth) + [c.text])
 
 
@@ -103,8 +99,7 @@ def get_comment_data(data):
                 yield Comment(
                     instance_title, proposal_title,
                     p['creator'], p['create_time'],
-                    #p['rate_pro'], p['rate_contra'], proposal_text,
-                    0, 0, proposal_text, #TODO
+                    p['rate_pro'], p['rate_contra'], proposal_text,
                     0, 0)
 
                 for cidx, ctpl in enumerate(walk_comments(p)):
@@ -113,8 +108,7 @@ def get_comment_data(data):
                     yield Comment(
                         '', '',
                         c['creator'], c['create_time'],
-                        #c['rate_pro'], c['rate_contra'], render_text(c['text']),
-                        0, 0, render_text(c['text']), #TODO
+                        c['rate_pro'], c['rate_contra'], render_text(c['text']),
                         cidx + 1, depth)
 
 
