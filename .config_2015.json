@@ -1,0 +1,28 @@
+{
+    "db_user": "root",
+    "db_database": "normsetzung",
+    "startdate": "2015-11-03",
+    "enddate": "2016-01-22",
+
+    "phases": [
+                {
+                        "startdate": "2015-11-03",
+                        "enddate": "2015-11-20",
+                        "name": "Phase 1"
+                },
+                { 
+                        "startdate": "2015-11-30",
+                        "enddate": "2015-12-04",
+                        "name": "Phase 3"
+                },
+                { 
+                        "startdate": "2016-01-13",
+                        "enddate": "2016-01-22",
+                        "name": "Phase 5"
+                }
+        ],
+
+        "_____comment": "exclude proposals in phase 3 and 5 since those were created centrally",
+        "proposal_extra_filter": " AND delegateable.create_time <= \"2015-11-21\""
+}
+

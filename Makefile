@@ -22,10 +22,16 @@ run: prepare
 	./ay session_user_stats
 	./ay basicfacts
 
-export:
-	./ay tobias_export --output output/output.xlsx --include-proposals
+export_habil15:
+	./ay tobias_export_habil15 --output output/output.xlsx --include-proposals --config .config_2015.json
 
-exportshort:
-	./ay tobias_export --output output/output_no_proposals.xlsx
+export_habil15_short:
+	./ay tobias_export_habil15 --output output/output_no_proposals.xlsx --config .config_2015.json
+
+export_promo16:
+	./ay tobias_export_promo16 --output output/output.xlsx --include-proposals --config .config_2016.json
+
+export_promo16_short:
+	./ay tobias_export_promo16 --output output/output_no_proposals.xlsx --config .config_2016.json
 
 .PHONY: test

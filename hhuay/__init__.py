@@ -25,7 +25,8 @@ from . import actions_prepare
 from . import actions_sessions
 from . import actions_misc
 from . import actions_ipppaper
-from . import actions_tobias_export
+from . import actions_tobias_export_habil15
+from . import actions_tobias_export_promo16
 from . import actions_plot
 
 
@@ -108,7 +109,8 @@ def main():
     glbls.update(actions_misc.__dict__)
     glbls.update(actions_plot.__dict__)
     glbls.update(actions_ipppaper.__dict__)
-    glbls.update(actions_tobias_export.__dict__)
+    glbls.update(actions_tobias_export_habil15.__dict__)
+    glbls.update(actions_tobias_export_promo16.__dict__)
     all_actions = [a for name, a in sorted(glbls.items())
                    if name.startswith('action_')]
     for a in all_actions:

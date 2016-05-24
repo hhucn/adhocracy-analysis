@@ -22,17 +22,17 @@ from .util import (
 from . import xlsx
 
 SORTORDER_MAP = {
-    '1': '-create_time',
+    '1': '-order.proposal.support',
     '2': 'order.title',
-    '3': '-order.proposal.controversy',
-    '4': '-order.proposal.mixed',
-    '5': '-order.newestcomment',
-    '6': '-order.proposal.support',
+    '3': '-create_time',
+    '4': '-order.newestcomment',
+    '5': '-order.proposal.controversy',
+    '6': '-order.proposal.support', #TODO fuer veraltete requests (von: Admin vor Projektstart, Crawler Bots)
 }
 
 User = collections.namedtuple(
     'User',
-    ['id', 'textid', 'name', 'gender', 'badges', 'proposal_sort_order'])
+    ['id', 'email', 'textid', 'name', 'gender', 'badges', 'proposal_sort_order'])
 
 def _format_timestamp(ts):
     st = time.gmtime(ts)
@@ -345,13 +345,15 @@ def _request_counter(rex):
 
 USER_HEADER = [
     'User ID',
+    'E-Mail',
     'Array of Badges (JSON)',
     'Female',
     'StatusProf',
+    'StatusPromovend',
     'StatusPostdoc',
     'StatusOther',
     'StatusFR',
-    'StatusHA',
+    'StatusPA',
 ]
 
 def read_users(db):
@@ -362,6 +364,7 @@ def read_users(db):
 
     db.execute('''SELECT
         user.id,
+        user.email,
         user.user_name,
         user.display_name,
         user.gender,
@@ -370,7 +373,7 @@ def read_users(db):
     WHERE %s
     ORDER BY id;''' % user_filter)
     users = {
-        row[0]: User(row[0], row[1], row[2], row[3], set(), row[4])
+        row[0]: User(row[0], row[1], row[2], row[3], row[4], set(), row[5])
         for row in db
     }
 
@@ -386,24 +389,27 @@ def read_users(db):
 
     user_info = {}
     for u in users.values():
-        assert u.gender in ('m', 'f')
+        assert u.gender in ('m', 'f', 'u')
         gender_code = 0 if u.gender == 'm' else 1
         status_prof = int("Professor/in / PD" in u.badges)
+        status_promovend = int("Promovend/in" in u.badges)
         status_postdoc = int("Postdoktorand/in" in u.badges)
         status_other = int("Andere" in u.badges)
         status_fakrat = int("FakultÃ¤tsrat" in u.badges)
-        status_habilausschuss = int("Habilitationsausschuss" in u.badges)
+        status_promoausschuss = int("Promotionsausschuss" in u.badges)
 
-        assert sum([status_prof, status_postdoc, status_other]) == 1
+        assert sum([status_prof, status_postdoc, status_other]) <= 1
         cells = [
             u.id,
+            u.email, #TODO vertraulich!!!!
             json.dumps(sorted(u.badges)),
             gender_code,
             status_prof,
+            status_promovend,
             status_postdoc,
             status_other,
             status_fakrat,
-            status_habilausschuss,
+            status_promoausschuss,
         ]
         user_info[u.textid] = (u, cells)
     return user_info
@@ -442,7 +448,7 @@ def read_comments(db):
     return res
 
 Proposal = collections.namedtuple(
-    'Proposal', ['id', 'title', 'visible', 'instance', 'create_time', 'creator_name'])
+    'Proposal', ['id', 'title', 'visible', 'instance', 'create_time', 'creator_name', 'text'])
 
 def read_proposals(db):
     db.execute('''SELECT
@@ -451,19 +457,24 @@ def read_proposals(db):
         delegateable.delete_time,
         instance.key,
         UNIX_TIMESTAMP(delegateable.create_time),
-        user.user_name
-    FROM proposal, delegateable, instance, user
-    WHERE proposal.id = delegateable.id AND
+        user.user_name,
+        text.text
+    FROM proposal, delegateable, instance, user, text, page
+    WHERE instance.key not like '%test%' AND
+          proposal.id = delegateable.id AND
+          text.page_id = page.id AND
+          proposal.description_id = page.id AND
           delegateable.instance_id = instance.id AND
-          user.id = delegateable.creator_id
+          user.id = delegateable.creator_id AND
+          text.create_time = delegateable.create_time
     ORDER BY delegateable.create_time ASC
     ''')
     proposals = []
     for row in db:
-        proposal_id, title, delete_time, instance_key, create_time, creator_name = row
+        proposal_id, title, delete_time, instance_key, create_time, creator_name, text = row
         visible = 1 if delete_time is None else 0
         proposals.append(Proposal(
-            proposal_id, title, visible, instance_key, create_time, creator_name))
+            proposal_id, title, visible, instance_key, create_time, creator_name, text))
     return proposals
 
 def export_proposals(ws, db):
@@ -582,12 +593,14 @@ def export_sessions(args, ws, db, config):
 
     ws.freeze_panes(1, 0)
     headers = [
-        'TrackingCookie', 'UserName', #TODO: nur zum Testen!!
+        'TrackingCookie', 'UserName', #TODO: vertraulich!!!!
+        'LoggedIn',
         'SessionId', 'AnonymUserId ', 'AccessFrom', 'Anonymized IP Address', 'Device Type',
         'LoginFailures',
         'SessionStart_Date', 'SessionStart', 'SessionEnd_Date', 'SessionEnd',
         'SessionDuration',
-        'NavigationCount', 'VotedCount', 'CommentsWritten', 'CommentsLength',
+        'NavigationCount', 'VotedCount',
+        'ProposalsWritten', 'ProposalsLength', 'CommentsWritten', 'CommentsLength',
         'Resorted (JSON)',
         'ProposalsViewed', 'ViewedKnowledgeBase',
     ]
@@ -622,25 +635,35 @@ def export_sessions(args, ws, db, config):
     navigation_count = _request_counter(r'/')
     vote_count = _request_counter(r'/.*/rate\.')
     proposal_sort_order_re = re.compile(r'&proposals_sort=([0-9]+)')
-    access_knowledge_base_rex = re.compile(r'/i/grundsaetze/outgoing_link/824893fea3ed4bc0c9789e8d2fd6eb6b8f7c1ab635ec800a1edfff4f740bf837!aHR0cDovL3d3dy5waGlsby5oaHUuZGUvYWthZGVtaXNjaGUtcXVhbGlmaXppZXJ1bmcvaGFiaWxpdGF0aW9uLmh0bWw=\?')
+    access_knowledge_base_rex = re.compile(r'/i/grundsaetze/outgoing_link/38ba575a76680c992fce937bc983f842f879c7b31fe837454ce38ca7a2528152!aHR0cDovL3d3dy5waGlsby5oaHUuZGUvZmlsZWFkbWluL3JlZGFrdGlvbi9GYWt1bHRhZXRlbi9QaGlsb3NvcGhpc2NoZV9GYWt1bHRhZXQvQUxMR0VNRUlOX0RhdGVpZW4vUHJvbW90aW9uc3N0dWRpdW0vUE9fRmFzc3VuZ18xMC4xMC4xNC5wZGY=\?')
 
     user_id_dict = {}
     for row_num, s in enumerate(sessions, start=1):
-        comments = []
+        user_comments = []
+        user_proposals = []
         user_name = s.user_name
         if user_name and (user_name in users):
             ui, user_rows = users[user_name]
             user_row = user_rows
             
+            # Proposals created by this user in this session
+            user_proposals = [
+                p for p in proposals
+                if (p.creator_name == user_name)
+                and s.requests[0].access_time <= p.create_time - 2
+                and p.create_time <= s.requests[-1].access_time + 2
+            ]
+
+            # Comments created by this user in this session
             if ui.id in all_comments:
-                comments = [
+                user_comments = [
                     c for c in all_comments[ui.id]
                     if s.requests[0].access_time <= c.create_time - 2 and
                     c.create_time <= s.requests[-1].access_time + 2
                 ]
         else:
             ui = None
-            user_row = ['anonymous',None,None,None,None,None,None,None]
+            user_row = ['anonymous',None,None,None,None,None,None,None,None,None]
         
         # Go through all requests of this session...
         resorted = []
@@ -710,8 +733,9 @@ def export_sessions(args, ws, db, config):
                     ])
 
         row = [
-            s.tracking_cookie, #TODO: Nur zum Testen!!!
-            s.user_name, #TODO: Nur zum Testen!!!
+            s.tracking_cookie, #TODO: vertraulich!!!!
+            s.user_name, #TODO: vertraulich!!!!
+            1 if s.user_name else 0,
             s.session_id,
             _get_anonym_user_id(s.user_name, s.tracking_cookie, user_dict, user_id_dict),
             'external' if _is_external(s.requests[0].ip) else 'university',
@@ -725,8 +749,10 @@ def export_sessions(args, ws, db, config):
             s.end_time - s.start_time,
             navigation_count(s),
             vote_count(s),
-            len(comments),
-            sum(len(c.text) for c in comments),
+            len(user_proposals),
+            sum(len(p.text) for p in user_proposals),
+            len(user_comments),
+            sum(len(c.text) for c in user_comments),
             json.dumps(resorted) if resorted else None,
             json.dumps(proposals_viewed),
             did_access_knowledge_base,
@@ -751,7 +777,7 @@ def export_sessions(args, ws, db, config):
     action='store_true',
     help='Include proposals in session table',
 )])
-def action_tobias_export(args, config, db, wdb):
+def action_tobias_export_promo16(args, config, db, wdb):
     book = xlsx.gen_doc(args.out_fn, ['Sessions', 'Benutzer', 'Proposals'])
 
     export_sessions(args, book.worksheets_objs[0], db, config)
