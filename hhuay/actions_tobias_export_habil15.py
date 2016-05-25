@@ -466,7 +466,7 @@ def read_proposals(db):
           proposal.description_id = page.id AND
           delegateable.instance_id = instance.id AND
           user.id = delegateable.creator_id AND
-          text.create_time = delegateable.create_time
+          ABS(UNIX_TIMESTAMP(text.create_time) - UNIX_TIMESTAMP(delegateable.create_time)) < 3
     ORDER BY delegateable.create_time ASC
     ''')
     proposals = []
