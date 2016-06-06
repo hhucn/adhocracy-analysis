@@ -479,15 +479,54 @@ def read_proposals(db):
 
 def export_proposals(ws, db):
     ws.freeze_panes(1, 0)
-    ws.write_header(['id', 'visible', 'instance', 'created', 'title'])
+    ws.write_header(['id', 'visible', 'instance', 'created', 'title', 'number_votes_pro', 'number_votes_con', 'comment_count'])
     proposals = read_proposals(db)
-    ws.write_rows([[
-        p.id,
-        p.visible,
-        p.instance,
-        _format_timestamp(p.create_time),
-        p.title
-    ] for p in proposals])
+    
+    for row_num, p in enumerate(proposals, start=1):
+        # number of (undeleted) comments of this proposal
+        comment_count = db.simple_query('''SELECT count(*)
+        FROM comment
+        WHERE topic_id =
+            (SELECT description_id
+            FROM proposal
+            WHERE id=%d
+            )
+        AND (delete_time IS NULL);
+        ''' % (p.id))[0]
+        
+        # number of pro and contra votes of this proposal
+        db.execute('''SELECT vote.user_id, vote.orientation
+        FROM vote
+        INNER JOIN 
+            (SELECT user_id, MAX(create_time) AS last_create_time FROM
+                (SELECT *
+                FROM vote
+                WHERE poll_id = (SELECT id FROM poll WHERE subject LIKE '@[proposal:%d]')
+                ) AS proposal_vote
+            GROUP BY user_id
+            ) AS user_proposal_vote
+        ON (vote.user_id = user_proposal_vote.user_id and vote.create_time = user_proposal_vote.last_create_time);
+        ''' % (p.id))
+        number_votes_pro = 0
+        number_votes_con = 0
+        for row in db:
+            user_id, orientation = row[0],row[1]
+            if orientation == 1:
+                number_votes_pro += 1
+            if orientation == -1:
+                number_votes_con += 1
+        
+        row = [
+            p.id,
+            p.visible,
+            p.instance,
+            _format_timestamp(p.create_time),
+            p.title,
+            number_votes_pro,
+            number_votes_con,
+            comment_count
+        ]
+        ws.write_row(row_num, row)
 
 class Session(object):
     __slots__ = 'tracking_cookie', 'session_id', 'requests', 'user_name', 'length', 'start_time', 'end_time'
