@@ -2,7 +2,7 @@
     "db_user": "root",
     "db_database": "normsetzung",
     "startdate": "2016-04-25",
-    "enddate": "2016-07-01",
+    "enddate": "2016-12-01",
 
     "phases": [
                 {
@@ -16,8 +16,8 @@
                         "name": "Phase 3"
                 },
                 { 
-                        "startdate": "2016-06-27",
-                        "enddate": "2016-07-01",
+                        "startdate": "2016-11-17",
+                        "enddate": "2016-12-01",
                         "name": "Phase 5"
                 }
         ],

@@ -389,7 +389,7 @@ def read_users(db):
 
     user_info = {}
     for u in users.values():
-        assert u.gender in ('m', 'f', 'u')
+        #assert u.gender in ('m', 'f', 'u')
         gender_code = 0 if u.gender == 'm' else 1
         status_prof = int("Professor/in / PD" in u.badges)
         status_promovend = int("Promovend/in" in u.badges)

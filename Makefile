@@ -20,6 +20,14 @@ switch-promo16:
 	rm ./.config.json
 	ln -s ./.config_2016.json ./.config.json
 
+switch-promo16-1:
+	rm ./.config.json
+	ln -s ./.config_2016_1.json ./.config.json
+
+switch-promo16-2:
+	rm ./.config.json
+	ln -s ./.config_2016_2.json ./.config.json
+
 prepare:
 	./ay cleanup_requestlog
 	./ay annotate_requests
